@@ -176,3 +176,37 @@ def test_initialisations_effectivement_distinctes(data, monkeypatch):
         train(c, seed, data)
     np.testing.assert_array_equal(initial[0][0], initial[2][0])
     assert not np.array_equal(initial[0][0], initial[1][0])
+
+
+@pytest.mark.parametrize('multi', [False, True])
+def test_separation_entrainement_validation(data, monkeypatch, multi):
+    xt, yt = data
+    xv = np.array([[.1, .2], [.3, .6], [.8, .9], [.6, .1]])
+    yv = np.array([2., -1., 3., .5])
+    received = []
+    original = mlp.MLPRegressor.fit
+
+    def capture(model, x, y):
+        received.append((x.copy(), y.copy()))
+        return original(model, x, y)
+
+    monkeypatch.setattr(mlp.MLPRegressor, 'fit', capture)
+    config = mlp.MLPConfig((3,), max_iter=5)
+    if multi:
+        runs = mlp.run_multi_seed(config, xt, yt, xv, yv, seeds=(42, 123)).runs
+    else:
+        runs = [mlp.train_mlp(config, 42, xt, yt, xv, yv)]
+    assert len(received) == len(runs)
+    for x_fit, y_fit in received:
+        np.testing.assert_array_equal(x_fit, xt)
+        np.testing.assert_array_equal(y_fit, yt)
+        assert len(x_fit) == 6
+    for run in runs:
+        for x, y, metrics in ((xt, yt, run.training_metrics), (xv, yv, run.validation_metrics)):
+            residual = y - run.predict(x)
+            mse = np.mean(residual ** 2)
+            expected = {'mse': mse, 'rmse': np.sqrt(mse),
+                        'r2': 1 - np.sum(residual ** 2) / np.sum((y - y.mean()) ** 2),
+                        'max_abs_error': np.max(np.abs(residual))}
+            assert metrics == pytest.approx(expected)
+        assert abs(run.validation_metrics['mse'] - run.training_metrics['mse']) > .1
