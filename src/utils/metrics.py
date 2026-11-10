@@ -16,6 +16,13 @@ from src.utils.logger import log_event
 
 KAPPA_HTH_ALERT = 1e7  # seuil diagnostique sur kappa(H^T H) (CDC 9.1, avenant 7.10)
 
+# Noms que ``condition_numbers`` fixe lui-meme dans l'evenement (kappa_h ... shape), plus
+# les parametres de ``log_event`` (logger, event, level) et le champ ``time`` du format JSON
+# Lines. Les accepter comme contexte provoquerait un ``TypeError`` opaque (AE0-04).
+_CONTEXT_FORBIDDEN = frozenset(
+    {"kappa_h", "kappa_hth", "threshold", "shape", "level", "event", "logger", "time"}
+)
+
 _logger = logging.getLogger("c0_tp2_mlp.metrics")
 
 
@@ -95,8 +102,14 @@ def condition_numbers(h, **context) -> Conditioning:
       de capacite flottante donne aussi inf (aucune exception).
     - Journalise le resultat ; au-dessus de ``KAPPA_HTH_ALERT`` l'evenement est
       emis au niveau WARNING (alerte diagnostique, sans blocage). Les arguments
-      nommes ``context`` (par exemple ``degree=5``) sont ajoutes a l'evenement.
+      nommes ``context`` (par exemple ``degree=5``) sont ajoutes a l'evenement ;
+      un nom de contexte reserve (``kappa_h``, ``kappa_hth``, ``threshold``,
+      ``shape``, ``level``, ``event``, ``logger``, ``time``) leve ``ValueError``
+      avant tout calcul (AE0-04).
     """
+    clash = _CONTEXT_FORBIDDEN.intersection(context)
+    if clash:
+        raise ValueError(f"noms de contexte reserves (champs internes) : {sorted(clash)}")
     a = _as_float_array(h, "H")
     if a.ndim != 2:
         raise ValueError(f"H : matrice 2D attendue, recu ndim = {a.ndim}")

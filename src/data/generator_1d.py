@@ -6,9 +6,13 @@ Fonction cible officielle (enonce 2026-2027, diapositive 9) :
 Convention d'echantillonnage de l'enseignant : ``np.arange(xmin, xmax,
 (xmax - xmin) / NbEx)``, soit NbEx points equidistants sur l'intervalle
 semi-ouvert [xmin, xmax) (borne haute EXCLUE, pas = (xmax - xmin) / NbEx).
-Ici ``np.linspace(xmin, xmax, NbEx, endpoint=False)`` produit les memes
-abscisses (meme formule xmin + k * pas) avec un nombre de points garanti egal
-a NbEx (EXG-PROG-B2-02) ; l'equivalence est verifiee par les tests.
+Ici ``np.linspace(xmin, xmax, NbEx, endpoint=False)`` garantit un nombre de
+points egal a NbEx (EXG-PROG-B2-02). Ses abscisses sont identiques bit a bit a
+celles de ``np.arange`` sur les grilles du projet (NbEx dans {10, 15, 20, 50,
+100, 200} sur [0 ; 1,2[) ; ailleurs elles ne coincident qu'a quelques ulps pres
+(ecart maximal mesure 2,6e-15 sur NbEx de 1 a 399 et trois domaines), et
+``np.arange`` peut renvoyer NbEx + 1 points (37 cas sur 1197). Ces constats sont
+verifies par les tests (AE1-03).
 
 Le bruit gaussien utilise un ``numpy.random.Generator`` local (``make_rng``) :
 l'etat aleatoire global n'est ni lu ni modifie.

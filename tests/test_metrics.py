@@ -231,3 +231,40 @@ class TestConditionNumbers:
         with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
             condition_numbers(h)
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+# --------------------------------------------------------------------------
+# AE0-04 : collisions entre champs de contexte et champs internes de journalisation
+# --------------------------------------------------------------------------
+class TestConditionNumbersContextCollision:
+    """Une cle de contexte homonyme d'un champ interne leve un ValueError explicite.
+
+    Avant correction : ``TypeError`` opaque (argument nomme en double) pour
+    ``kappa_h``, ``kappa_hth``, ``threshold``, ``shape``, ``level``, ``event``
+    et ``logger``.
+    """
+
+    @pytest.mark.parametrize(
+        "key",
+        ["kappa_h", "kappa_hth", "threshold", "shape", "level", "event", "logger", "time"],
+    )
+    def test_reserved_context_key_is_rejected_with_explicit_error(self, key):
+        with pytest.raises(ValueError, match=key):
+            condition_numbers(np.eye(2), **{key: 1})
+
+    def test_all_colliding_keys_are_reported_together(self):
+        with pytest.raises(ValueError) as info:
+            condition_numbers(np.eye(2), shape=1, threshold=2)
+        assert "shape" in str(info.value) and "threshold" in str(info.value)
+
+    def test_rejection_happens_before_any_event_is_logged(self, caplog):
+        with caplog.at_level(logging.DEBUG, logger="c0_tp2_mlp.metrics"):
+            with pytest.raises(ValueError):
+                condition_numbers(np.eye(2), kappa_h=1.0)
+        assert caplog.records == []
+
+    def test_free_context_keys_still_work(self, caplog):
+        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
+            condition_numbers(np.eye(2), degree=3, method="svd", n_samples=2)
+        fields = caplog.records[0].fields
+        assert (fields["degree"], fields["method"], fields["n_samples"]) == (3, "svd", 2)

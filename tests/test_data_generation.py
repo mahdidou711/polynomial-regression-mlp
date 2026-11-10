@@ -96,6 +96,31 @@ class TestSamplingConvention:
         x, _ = genere_exemple_dim1(-1.0, 2.5, 35, 0.0)
         assert x[0, 0] == -1.0 and x.max() < 2.5 and x.shape[0] == 35
 
+    @pytest.mark.parametrize("nb_ex", [10, 15, 20, 50, 100, 200])
+    def test_abscissas_are_bitwise_identical_to_teacher_arange_on_project_grids(self, nb_ex):
+        """AE1-03 : identite exacte uniquement sur les grilles du projet (ARB-01, [0 ; 1,2[)."""
+        x, _ = genere_exemple_dim1(0.0, 1.2, nb_ex, 0.0)
+        assert np.array_equal(x[:, 0], _teacher_arange(0.0, 1.2, nb_ex))
+
+    def test_abscissas_agree_within_a_few_ulps_elsewhere_and_not_always_bitwise(self):
+        """AE1-03 : hors des grilles du projet, accord a quelques ulps (mesure : 2,6e-15),
+        sans identite bit a bit generale ; np.arange derive en NbEx + 1 points dans 37 cas."""
+        same_size = not_bitwise = drift = 0
+        worst = 0.0
+        for nb_ex in range(1, 400):
+            for xmin, xmax in ((0.0, 1.2), (0.0, 0.7), (0.1, 0.3)):
+                ref = _teacher_arange(xmin, xmax, nb_ex)
+                if ref.size != nb_ex:
+                    drift += 1
+                    continue
+                x = genere_exemple_dim1(xmin, xmax, nb_ex, 0.0)[0][:, 0]
+                same_size += 1
+                not_bitwise += not np.array_equal(x, ref)
+                worst = max(worst, float(np.max(np.abs(x - ref))))
+        assert (same_size, drift) == (1160, 37)
+        assert not_bitwise > 0  # l'affirmation « memes abscisses » serait fausse sans restriction
+        assert worst <= 4e-15
+
     def test_count_is_exact_where_teacher_arange_would_drift(self):
         """Verrou du risque documente (EXG-PROG-B2-02) : le compte reste NbEx."""
         for nb_ex in range(1, 400):
