@@ -155,3 +155,56 @@ class TestEnvironmentInfo:
 
     def test_is_json_serialisable(self):
         json.dumps(environment_info())
+
+
+class TestExceptionLogging:
+    """AE0-03 : la trace d'une exception figure dans le JSON Lines."""
+
+    def test_exc_info_true_records_traceback(self, logger_name, tmp_path):
+        f = tmp_path / "run.jsonl"
+        lg = get_logger(logger_name, log_file=f)
+        try:
+            raise ZeroDivisionError("boom 42")
+        except ZeroDivisionError:
+            log_event(lg, "run_failed", level=logging.ERROR, exc_info=True, seed=42)
+        (rec,) = read_jsonl(f)
+        assert rec["event"] == "run_failed" and rec["level"] == "ERROR" and rec["seed"] == 42
+        assert rec["exc_info"].startswith("Traceback (most recent call last)")
+        assert "ZeroDivisionError: boom 42" in rec["exc_info"]
+
+    def test_exception_instance_is_accepted(self, logger_name, tmp_path):
+        f = tmp_path / "run.jsonl"
+        lg = get_logger(logger_name, log_file=f)
+        err = ValueError("valeur invalide")
+        log_event(lg, "bad", level=logging.ERROR, exc_info=err)
+        assert "ValueError: valeur invalide" in read_jsonl(f)[0]["exc_info"]
+
+    def test_no_exc_info_key_for_ordinary_events(self, logger_name, tmp_path):
+        f = tmp_path / "run.jsonl"
+        log_event(get_logger(logger_name, log_file=f), "ok", x=1)
+        assert "exc_info" not in read_jsonl(f)[0]
+
+    def test_each_line_stays_one_valid_json_object(self, logger_name, tmp_path):
+        f = tmp_path / "run.jsonl"
+        lg = get_logger(logger_name, log_file=f)
+        try:
+            raise RuntimeError("multi\nligne")
+        except RuntimeError:
+            log_event(lg, "failed", exc_info=True)
+        log_event(lg, "after")
+        assert len(f.read_text(encoding="utf-8").splitlines()) == 2  # trace multi-ligne echappee
+        assert [r["event"] for r in read_jsonl(f)] == ["failed", "after"]
+
+    def test_console_shows_traceback(self, logger_name, capsys):
+        lg = get_logger(logger_name)
+        try:
+            raise KeyError("cle")
+        except KeyError:
+            log_event(lg, "failed", exc_info=True)
+        assert "KeyError" in capsys.readouterr().err
+
+    def test_exc_info_is_not_usable_as_a_condition_number_context(self):
+        from src.utils.metrics import condition_numbers
+
+        with pytest.raises(ValueError, match="exc_info"):
+            condition_numbers(np.eye(3), exc_info=1)

@@ -59,6 +59,10 @@ class _JsonLinesFormatter(logging.Formatter):
             "event": record.getMessage(),
         }
         payload.update(_jsonable(getattr(record, "fields", {})))
+        if record.exc_info:  # AE0-03 : trace d'exception conservee dans le JSON Lines
+            payload["exc_info"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            payload["stack_info"] = self.formatStack(record.stack_info)
         return json.dumps(payload, ensure_ascii=False, allow_nan=False)
 
 
@@ -104,12 +108,20 @@ def get_logger(name=DEFAULT_LOGGER_NAME, log_file=None, level=logging.INFO) -> l
     return logger
 
 
-def log_event(logger: logging.Logger, event: str, *, level: int = logging.INFO, **fields) -> None:
-    """Journalise ``event`` avec des champs nommes (``cle=valeur`` / cles JSON)."""
+def log_event(
+    logger: logging.Logger, event: str, *, level: int = logging.INFO, exc_info=False, **fields
+) -> None:
+    """Journalise ``event`` avec des champs nommes (``cle=valeur`` / cles JSON).
+
+    ``exc_info`` (comme pour ``Logger.log``) joint la trace d'une exception : ``True``
+    dans un bloc ``except``, ou une instance d'exception. Le fichier JSON Lines la
+    consigne sous la cle ``exc_info`` (chaine de la trace complete, AE0-03) ; la console
+    l'affiche apres la ligne de l'evenement.
+    """
     clash = _RESERVED_FIELDS.intersection(fields)
     if clash:
         raise ValueError(f"noms de champs reserves : {sorted(clash)}")
-    logger.log(level, event, extra={"fields": fields})
+    logger.log(level, event, exc_info=exc_info, extra={"fields": fields})
 
 
 def environment_info() -> dict:

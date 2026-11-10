@@ -12,6 +12,7 @@ Commande : python -m pytest tests/test_polynomial_solvers.py -v
 """
 
 import logging
+import warnings
 from unittest import mock
 
 import numpy as np
@@ -732,12 +733,46 @@ class TestErrorHandling:
         assert all(np.array_equal(a, b) for a, b in zip(first, second))
         assert np.array_equal(np.random.get_state()[1], state)
 
-    def test_non_finite_normal_equations_result_is_qualified_not_raised(self):
-        # H proche du debordement : H^T H deborde, le resultat est qualifie non applicable.
+    def test_overflowing_normal_matrix_is_rank_deficient_not_non_finite(self):
+        # AE2-02 : ce cas ne passe PAS par la branche « resultat non fini » : H^T H deborde,
+        # son rang numerique vaut 1 et ``RankDeficientError`` qualifie la methode. Le
+        # conditionnement (SVD de H, sans former H^T H) reste fini.
         x = np.linspace(1e100, 2e100, 6)
         c = compare_solvers(x, np.ones(6), 1)
         assert c.regime == "diagnostic"
         assert c.coefficients["svd"] is not None
+        assert c.coefficients["normal"] is None and "RankDeficientError" in c.errors["normal"]
+
+    def test_non_finite_normal_equations_result_is_qualified_not_raised(self):
+        # AE2-02 : cible de grande amplitude. H est bien conditionnee (regime strict, rang
+        # complet) mais H^T y deborde : ``np.linalg.solve`` rend un resultat non fini, que
+        # compare_solvers qualifie sans lever. Les debordements numpy sont le phenomene
+        # teste, d'ou le filtre sur ``RuntimeWarning`` (sinon -W error les transforme en
+        # exceptions).
+        x = np.linspace(0.0, 1.2, 20, endpoint=False)
+        y = np.full(20, 1e307)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            assert not np.isfinite(np.linalg.solve(vandermonde(x, 1).T @ vandermonde(x, 1),
+                                                   vandermonde(x, 1).T @ y)).all()
+            c = compare_solvers(x, y, 1)
+        assert c.rank == 2 and c.regime == "strict"  # strict n'implique pas 3 methodes calculees
+        assert c.coefficients["normal"] is None and c.errors["normal"] == "resultat non fini"
+        assert c.rel_error_inf["normal"] is None and c.mixed_tolerance_ok["normal"] is None
+        assert not c.within_strict_tolerance("normal")
+        # QR et SVD restent calculees et finies, et concordent entre elles.
+        for method in ("qr", "svd", "sklearn"):
+            assert np.isfinite(c.coefficients[method]).all()
+        assert c.rel_error_inf["qr"] <= STRICT_RTOL
+        assert c.coefficients["svd"][0] == pytest.approx(1e307, rel=1e-3)
+
+    def test_non_finite_result_is_logged_as_not_applicable(self, caplog):
+        x = np.linspace(0.0, 1.2, 20, endpoint=False)
+        with warnings.catch_warnings(), caplog.at_level(logging.INFO, logger="c0_tp2_mlp"):
+            warnings.simplefilter("ignore", RuntimeWarning)
+            compare_solvers(x, np.full(20, 1e307), 1)
+        events = [r for r in caplog.records if r.getMessage() == "solver_comparison"]
+        assert events and events[-1].fields["not_applicable"] == ["normal"]
 
     def test_fit_result_carries_conditioning_and_rank(self):
         x, y = genere_base_apprentissage()
@@ -799,3 +834,81 @@ class TestPublicInterface:
     def test_methods_are_the_three_solvers_of_the_specification(self):
         assert models.METHODS == ("normal", "qr", "svd")
         assert set(models.SOLVERS) == set(models.METHODS)
+
+
+# --------------------------------------------------------------------------
+# AE2-01 : seuil de regime autour de kappa(H^T H) = 1e7
+# --------------------------------------------------------------------------
+def _kappa_hth_independent(x, degree):
+    """kappa(H^T H) recalcule sans le code du projet (np.vander + SVD)."""
+    s = np.linalg.svd(np.vander(np.ravel(x), degree + 1, increasing=True), compute_uv=False)
+    return float((s[0] / s[-1]) ** 2)
+
+
+def _grid(xmax, n=20):
+    return np.linspace(0.0, xmax, n, endpoint=False)
+
+
+# Degre 5, N = 20, domaine [0 ; xmax[ : kappa(H^T H) vaut ~9e6 pour xmax = 1,0872 et ~1,1e7
+# pour xmax = 1,0435 (grille nominale : 6,22e6 a xmax = 1,2). Ces cas bornent 1e7 a +-10 %.
+BELOW_XMAX, ABOVE_XMAX = 1.0872300003, 1.0434920974
+
+
+class TestRegimeThresholdBoundary:
+    def setup_method(self):
+        logging.disable(logging.WARNING)
+
+    def teardown_method(self):
+        logging.disable(logging.NOTSET)
+
+    def test_cases_are_on_the_intended_side_of_the_threshold(self):
+        below = _kappa_hth_independent(_grid(BELOW_XMAX), 5)
+        above = _kappa_hth_independent(_grid(ABOVE_XMAX), 5)
+        assert 8.5e6 < below < 1e7 < above < 1.15e7
+
+    def test_just_below_threshold_is_strict(self):
+        x = _grid(BELOW_XMAX)
+        y = np.sin(2 * np.pi * x)
+        c = compare_solvers(x, y, 5)
+        assert c.kappa_hth == pytest.approx(9e6, rel=1e-3) and c.kappa_hth <= KAPPA_HTH_ALERT
+        assert c.regime == "strict"
+        assert c.within_strict_tolerance("normal") and c.within_strict_tolerance("qr")
+
+    def test_just_above_threshold_is_diagnostic(self):
+        x = _grid(ABOVE_XMAX)
+        y = np.sin(2 * np.pi * x)
+        c = compare_solvers(x, y, 5)
+        assert c.kappa_hth == pytest.approx(1.1e7, rel=1e-3) and c.kappa_hth > KAPPA_HTH_ALERT
+        assert c.regime == "diagnostic"  # detecte un seuil multiplie par 10 (>= 1e8)
+
+    def test_a_threshold_ten_times_higher_or_lower_would_change_a_verdict(self):
+        k_below = _kappa_hth_independent(_grid(BELOW_XMAX), 5)
+        k_above = _kappa_hth_independent(_grid(ABOVE_XMAX), 5)
+        for factor in (10.0, 0.1):
+            wrong = KAPPA_HTH_ALERT * factor
+            assert (k_below <= wrong, k_above <= wrong) != (True, False)
+
+    def test_regime_follows_kappa_not_degree_across_the_boundary(self):
+        # Meme degre, meme N : seul le domaine change, le regime bascule.
+        x1, x2 = _grid(BELOW_XMAX), _grid(ABOVE_XMAX)
+        assert compare_solvers(x1, np.ones(20), 5).regime == "strict"
+        assert compare_solvers(x2, np.ones(20), 5).regime == "diagnostic"
+
+    def test_alert_level_flips_at_the_threshold(self, caplog):
+        logging.disable(logging.NOTSET)
+        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
+            condition_numbers(vandermonde(_grid(BELOW_XMAX), 5))
+            condition_numbers(vandermonde(_grid(ABOVE_XMAX), 5))
+        levels = [(r.getMessage(), r.levelno) for r in caplog.records]
+        assert levels == [("conditioning", logging.INFO), ("conditioning_alert", logging.WARNING)]
+
+    def test_exact_threshold_value_is_not_an_alert(self, monkeypatch, caplog):
+        # Frontiere : kappa == seuil n'alerte pas (comparaison stricte ``>``).
+        logging.disable(logging.NOTSET)
+        h = np.diag([1e3, 1.0])  # kappa(H) = 1e3, kappa(H^T H) = 1e6 exactement
+        monkeypatch.setattr("src.utils.metrics.KAPPA_HTH_ALERT", 1e6)
+        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
+            assert condition_numbers(h).kappa_hth == 1e6
+        assert [(r.getMessage(), r.levelno) for r in caplog.records] == [
+            ("conditioning", logging.INFO)
+        ]
