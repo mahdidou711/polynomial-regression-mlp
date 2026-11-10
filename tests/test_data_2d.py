@@ -136,3 +136,9 @@ def test_grilles_ne_modifient_pas_etat_aleatoire():
     assert before[0] == after[0]
     assert np.array_equal(before[1], after[1])
     assert before[2:] == after[2:]
+
+
+@pytest.mark.parametrize("bad", [np.empty((0, 2)), np.array([[0.5]])])
+def test_cible_rejette_formes_vides_ou_incompletes(bad):
+    with pytest.raises(ValueError):
+        sinus_cardinal(bad)
