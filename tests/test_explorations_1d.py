@@ -85,3 +85,37 @@ def test_diagnostics_variance_et_sous_determination():
     for row in diagnostics[9:]:
         assert row['rank'] < row['n_parameters']
         assert np.isnan(row['normal_rel_error'])
+
+
+def test_selection_cstar_sur_test_nominal_independante():
+    seed = 1000
+    x = np.linspace(0, 1.2, 20, endpoint=False)
+    y = np.sin(-np.pi + 2*np.pi*x) + np.random.default_rng(seed).normal(0, .2, 20)
+    nominal = np.linspace(0, 1.2, 200, endpoint=False)
+    extended = np.linspace(-.3, 1.5, 301)
+    outside = (extended < -1e-12) | (extended > 1.2 + 1e-12)
+    errors_nominal, errors_extra = [], []
+    for degree in range(1, 13):
+        beta = lstsq(np.vander(x, degree+1, increasing=True), y, lapack_driver='gelsd')[0]
+        for grid, errors in ((nominal, errors_nominal), (extended[outside], errors_extra)):
+            prediction = np.vander(grid, degree+1, increasing=True) @ beta
+            errors.append(np.mean((prediction - np.sin(-np.pi + 2*np.pi*grid))**2))
+    expected = int(np.argmin(errors_nominal)) + 1
+    assert expected != int(np.argmin(errors_extra)) + 1
+    rows = run_extrapolation((seed,))
+    selected = next(row for row in rows if row['role'] == 'C*')
+    assert selected['degree'] == expected
+    assert all(row['seed'] == seed and row['cstar'] == expected for row in rows)
+
+
+def test_roles_coincidents_conserves(tmp_path):
+    rows = run_extrapolation((1011,))
+    assert [r['role'] for r in rows] == ['1', '3', 'C*', '10']
+    star, ten = rows[2], rows[3]
+    assert star['degree'] == ten['degree'] == 10
+    assert star['eqm_interp'] == ten['eqm_interp']
+    assert star['eqm_extrap'] == ten['eqm_extrap']
+    _, path = export_extrapolation(rows, tmp_path)
+    with path.open() as f:
+        summary = list(csv.DictReader(f))
+    assert {r['role']: int(r['n_runs']) for r in summary} == {'1': 1, '3': 1, 'C*': 1, '10': 1}
