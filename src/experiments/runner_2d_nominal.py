@@ -10,6 +10,13 @@ versions, empreinte du moteur, nombre de threads BLAS). Un fichier n'existe que 
 complet (ecriture atomique) ; la reprise ne recalcule jamais un run valide.
 
 Commande : OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m src.experiments.runner_2d_nominal
+
+Attention (AE7-04) : hors ``--verify-only``, cette commande reecrit dans ``--tables-dir`` (par
+defaut ``results/tables``) les tables ``mlp_2d_runs.csv``, ``mlp_2d_plan.csv``,
+``mlp_2d_config_stats.csv`` et ``mlp_2d_metadata.json`` avec le seul lot B (61 lignes de plan au
+lieu de 211) ; seule la reagregation du runner parametrique restitue les tables de reference.
+Pour un controle ou une reproduction, utiliser ``--verify-only`` ou ``python main.py verify`` /
+``python main.py reproduce --out DIR`` (qui n'ecrivent jamais dans ``results/tables``).
 """
 
 import argparse
