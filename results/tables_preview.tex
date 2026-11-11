@@ -1,6 +1,7 @@
 % Apercu autonome des tables exportees (etape 8). Genere par src/export, ne pas editer.
 % Usage : importer le depot a la racine dans Overleaf, choisir ce fichier comme document
-% principal, compiler UNE fois et consulter le journal (aucune compilation locale).
+% principal, compiler et consulter le journal. Compilation locale autorisee pour
+% la verification de l'etape 8 uniquement (decision utilisateur du 11 novembre 2026).
 % Si le projet Overleaf n'a pas le depot a sa racine, modifier uniquement \tablesroot.
 \documentclass[a4paper,10pt]{article}
 \usepackage[T1]{fontenc}
@@ -12,253 +13,287 @@
 \usepackage{longtable}
 \usepackage{adjustbox}
 \usepackage{caption}
+\usepackage{needspace}
 \usepackage{siunitx}
 \sisetup{output-decimal-marker={,}}% presentation francaise ; les donnees gardent le point
 \newcommand{\tablesroot}{results/tables}
 \begin{document}
 \section*{Aper\c{c}u des tables export\'ees}
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{nominal\_1d\_seed42}}
 Profil d'erreur nominal (graine 42), degr\'es 1 \`a 12.
-
-\captionof{table}{nominal\_1d\_seed42}
-\begingroup\footnotesize
+\captionof{table}{nominal\_1d\_seed42}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/nominal_1d_seed42.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{nominal\_1d\_seed42\_diagnostics}}
 Diagnostics de conditionnement et \'ecarts OLS/QR/SVD (graine 42).
-
-\captionof{table}{nominal\_1d\_seed42\_diagnostics}
-\begingroup\footnotesize
+\captionof{table}{nominal\_1d\_seed42\_diagnostics}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/nominal_1d_seed42_diagnostics.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{nominal\_1d\_stats\_50\_graines}}
 Statistiques descriptives sur 50 graines (m\'ediane, quartiles).
-
-\captionof{table}{nominal\_1d\_stats\_50\_graines}
-\begingroup\footnotesize
+\captionof{table}{nominal\_1d\_stats\_50\_graines}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/nominal_1d_stats_50_graines.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{nominal\_1d\_cstar\_50\_graines}}
 Distribution de C* sur 50 graines.
-
-\captionof{table}{nominal\_1d\_cstar\_50\_graines}
-\begingroup\footnotesize
+\captionof{table}{nominal\_1d\_cstar\_50\_graines}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/nominal_1d_cstar_50_graines.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{exploration\_nb\_ex\_synthese}}
 Exploration 1 (taille de l'\'echantillon N) : synth\`ese par N.
-
-\captionof{table}{exploration\_nb\_ex\_synthese}
-\begingroup\footnotesize
+\captionof{table}{exploration\_nb\_ex\_synthese}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/exploration_nb_ex_synthese.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{exploration\_sigma\_synthese}}
 Exploration 2 (bruit sigma) : synth\`ese par sigma.
-
-\captionof{table}{exploration\_sigma\_synthese}
-\begingroup\footnotesize
+\captionof{table}{exploration\_sigma\_synthese}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/exploration_sigma_synthese.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{exploration\_extrapolation\_stats}}
 Exploration 3 (extrapolation) : EQM par domaine.
-
-\captionof{table}{exploration\_extrapolation\_stats}
-\begingroup\footnotesize
+\captionof{table}{exploration\_extrapolation\_stats}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/exploration_extrapolation_stats.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\Needspace{10\baselineskip}
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{exploration\_nb\_ex\_stats}}
 Exploration 1 : statistiques compl\`etes par N et par degr\'e.
-
-\captionof{table}{exploration\_nb\_ex\_stats}
+\captionof{table}{exploration\_nb\_ex\_stats}\par
+\end{minipage}\par
+\addtocounter{table}{-1}
 \begingroup\footnotesize
 \input{\tablesroot/exploration_nb_ex_stats.tex}
 \endgroup
-\medskip
+\par\medskip
 
+\Needspace{10\baselineskip}
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{exploration\_sigma\_stats}}
 Exploration 2 : statistiques compl\`etes par sigma et par degr\'e.
-
-\captionof{table}{exploration\_sigma\_stats}
+\captionof{table}{exploration\_sigma\_stats}\par
+\end{minipage}\par
+\addtocounter{table}{-1}
 \begingroup\footnotesize
 \input{\tablesroot/exploration_sigma_stats.tex}
 \endgroup
-\medskip
+\par\medskip
 
+\Needspace{10\baselineskip}
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{exploration\_nb\_ex\_diagnostics}}
 Diagnostics de conditionnement par N et par degr\'e.
-
-\captionof{table}{exploration\_nb\_ex\_diagnostics}
+\captionof{table}{exploration\_nb\_ex\_diagnostics}\par
+\end{minipage}\par
+\addtocounter{table}{-1}
 \begingroup\footnotesize
 \input{\tablesroot/exploration_nb_ex_diagnostics.tex}
 \endgroup
-\medskip
+\par\medskip
 
+\Needspace{10\baselineskip}
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{exploration\_nb\_ex\_variance}}
 Variance de pr\'ediction moyenne par N (\'echelle en 1/N).
-
-\captionof{table}{exploration\_nb\_ex\_variance}
+\captionof{table}{exploration\_nb\_ex\_variance}\par
+\end{minipage}\par
+\addtocounter{table}{-1}
 \begingroup\footnotesize
 \input{\tablesroot/exploration_nb_ex_variance.tex}
 \endgroup
-\medskip
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_nominal\_stats}}
 EXP-2D-NOM : EQM de validation par largeur H, 10 graines.
-
-\captionof{table}{mlp\_2d\_nominal\_stats}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_nominal\_stats}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_nominal_stats.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_sensibilite\_topologie}}
 EXP-2D-TOPO : profondeur contre largeur.
-
-\captionof{table}{mlp\_2d\_sensibilite\_topologie}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_sensibilite\_topologie}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_sensibilite_topologie.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_sensibilite\_regularisation}}
 EXP-2D-REG : r\'egularisation L2.
-
-\captionof{table}{mlp\_2d\_sensibilite\_regularisation}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_sensibilite\_regularisation}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_sensibilite_regularisation.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_sensibilite\_activation}}
 EXP-2D-ACT : tanh contre relu.
-
-\captionof{table}{mlp\_2d\_sensibilite\_activation}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_sensibilite\_activation}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_sensibilite_activation.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_sensibilite\_solveur}}
 EXP-2D-SOLV : lbfgs contre adam (budget et grille donn\'es).
-
-\captionof{table}{mlp\_2d\_sensibilite\_solveur}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_sensibilite\_solveur}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_sensibilite_solveur.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_adam\_grid}}
 Grille adam (DEC-19), ordre contractuel de la grille.
-
-\captionof{table}{mlp\_2d\_adam\_grid}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_adam\_grid}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_adam_grid.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_solver\_comparison}}
 Comparaison lbfgs / adam sur le test (10 graines).
-
-\captionof{table}{mlp\_2d\_solver\_comparison}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_solver\_comparison}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_solver_comparison.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_final\_synthese}}
 \'Evaluation finale sur le test (N = 1600), 10 graines par configuration.
-
-\captionof{table}{mlp\_2d\_final\_synthese}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_final\_synthese}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_final_synthese.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_final\_test\_stats}}
 \'Evaluation finale : toutes les m\'etriques.
-
-\captionof{table}{mlp\_2d\_final\_test\_stats}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_final\_test\_stats}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_final_test_stats.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\Needspace{10\baselineskip}
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_final\_test\_runs}}
 \'Evaluation finale : r\'esultat de chaque graine.
-
-\captionof{table}{mlp\_2d\_final\_test\_runs}
+\captionof{table}{mlp\_2d\_final\_test\_runs}\par
+\end{minipage}\par
+\addtocounter{table}{-1}
 \begingroup\footnotesize
 \input{\tablesroot/mlp_2d_final_test_runs.tex}
 \endgroup
-\medskip
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{mlp\_2d\_configurations}}
 Toutes les configurations distinctes du plan (validation).
-
-\captionof{table}{mlp\_2d\_configurations}
-\begingroup\footnotesize
+\captionof{table}{mlp\_2d\_configurations}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/mlp_2d_configurations.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
+\noindent\begin{minipage}{\linewidth}
 \subsection*{\texttt{donnees\_2d\_provenance}}
 Provenance et empreintes des donn\'ees 2D.
-
-\captionof{table}{donnees\_2d\_provenance}
-\begingroup\footnotesize
+\captionof{table}{donnees\_2d\_provenance}\par
+\begingroup\centering\footnotesize
 \begin{adjustbox}{max width=\linewidth}
 \input{\tablesroot/donnees_2d_provenance.tex}
-\end{adjustbox}
+\end{adjustbox}\par
 \endgroup
-\medskip
+\end{minipage}
+\par\medskip
 
 \end{document}

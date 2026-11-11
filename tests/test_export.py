@@ -352,6 +352,21 @@ class TestInjectedDefects:
         layout_copy.preview.write_text(bad, encoding="utf-8")
         assert any("longtable dans une boite" in d for d in checks.check_preview(layout_copy).details)
 
+    def test_apercu_garde_les_legendes_et_corrige_le_compteur_longtable(self):
+        long_name = "exploration_nb_ex_stats"
+        text = build.render_preview({long_name})
+        sections = text.split(r"\subsection*")[1:]
+        assert len(sections) == len(registry.TABLES)
+        for spec, section in zip(registry.TABLES, sections):
+            caption = section.index(r"\captionof{table}")
+            input_pos = section.index(r"\input{\tablesroot/")
+            assert caption < input_pos
+            if spec.stem == long_name:
+                assert section.index(r"\addtocounter{table}{-1}") < input_pos
+                assert r"\end{minipage}" in section[caption:input_pos]
+            else:
+                assert r"\end{minipage}" not in section[caption:input_pos]
+
     def test_evaluation_finale_incoherente(self, layout_copy):
         path = layout_copy.tables / "mlp_2d_final_test_stats.csv"
         lines = path.read_text(encoding="utf-8").splitlines()

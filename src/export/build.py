@@ -167,7 +167,8 @@ def build_figures_manifest(layout: Layout, src: registry.Sources | None = None) 
 # --------------------------------------------------------------------------
 PREVIEW_HEAD = r"""% Apercu autonome des tables exportees (etape 8). Genere par src/export, ne pas editer.
 % Usage : importer le depot a la racine dans Overleaf, choisir ce fichier comme document
-% principal, compiler UNE fois et consulter le journal (aucune compilation locale).
+% principal, compiler et consulter le journal. Compilation locale autorisee pour
+% la verification de l'etape 8 uniquement (decision utilisateur du 11 novembre 2026).
 % Si le projet Overleaf n'a pas le depot a sa racine, modifier uniquement \tablesroot.
 \documentclass[a4paper,10pt]{article}
 \usepackage[T1]{fontenc}
@@ -179,6 +180,7 @@ PREVIEW_HEAD = r"""% Apercu autonome des tables exportees (etape 8). Genere par 
 \usepackage{longtable}
 \usepackage{adjustbox}
 \usepackage{caption}
+\usepackage{needspace}
 \usepackage{siunitx}
 \sisetup{output-decimal-marker={,}}% presentation francaise ; les donnees gardent le point
 \newcommand{\tablesroot}{results/tables}
@@ -192,14 +194,19 @@ def render_preview(longtables=frozenset()) -> str:
     parts = [PREVIEW_HEAD]
     for spec in registry.TABLES:
         title = escape_tex(spec.stem)
-        parts.append(f"\\subsection*{{\\texttt{{{title}}}}}\n{escape_tex(spec.summary)}.\n")
+        heading = (f"\\subsection*{{\\texttt{{{title}}}}}\n{escape_tex(spec.summary)}.\n"
+                   f"\\captionof{{table}}{{{title}}}\\par\n")
         path = f"\\input{{\\tablesroot/{spec.stem}.tex}}"
         if spec.stem in longtables:
-            body = f"\\begingroup\\footnotesize\n{path}\n\\endgroup\n"
+            # longtable avance lui-meme le compteur ; la legende l'a deja avance.
+            body = (f"\\Needspace{{10\\baselineskip}}\n\\noindent\\begin{{minipage}}{{\\linewidth}}\n"
+                    f"{heading}\\end{{minipage}}\\par\n\\addtocounter{{table}}{{-1}}\n"
+                    f"\\begingroup\\footnotesize\n{path}\n\\endgroup\n")
         else:
-            body = (f"\\begingroup\\footnotesize\n\\begin{{adjustbox}}{{max width=\\linewidth}}\n"
-                    f"{path}\n\\end{{adjustbox}}\n\\endgroup\n")
-        parts.append(f"\\captionof{{table}}{{{title}}}\n{body}\\medskip\n")
+            body = (f"\\noindent\\begin{{minipage}}{{\\linewidth}}\n{heading}"
+                    f"\\begingroup\\centering\\footnotesize\n\\begin{{adjustbox}}{{max width=\\linewidth}}\n"
+                    f"{path}\n\\end{{adjustbox}}\\par\n\\endgroup\n\\end{{minipage}}\n")
+        parts.append(f"{body}\\par\\medskip\n")
     parts.append("\\end{document}\n")
     return "\n".join(parts)
 

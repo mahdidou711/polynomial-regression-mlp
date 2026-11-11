@@ -1046,12 +1046,12 @@
    "source": "nominal_1d_stats_50_graines.csv"
   },
   {
-   "bytes": 7567,
+   "bytes": 9590,
    "id": "tables_preview",
    "kind": "preview",
    "path": "results/tables_preview.tex",
    "requirements": [],
-   "sha256": "e091cfd1fa8d1e090f5b3edb96f40fb856fe0c769f6decb41af3f08a240b5951",
+   "sha256": "c30ad223b2f3c50351e0807f2ff634bd5c14d6ec1774985cfec59fa2008bffeb",
    "source": "src/export/build.py"
   }
  ],
