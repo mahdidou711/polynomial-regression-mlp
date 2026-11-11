@@ -1,0 +1,12 @@
+% Genere par src/export (ne pas editer a la main). Source : derive de mlp_2d_metadata.json, mlp_2d_final_evaluation.json.
+% Colonnes : jeu, n, origine, sha256 ; 4 lignes.
+\begin{tabular}{l r l l}
+\toprule
+{jeu de donn\'ees} & {\(N\)} & {origine} & {empreinte (16 car.)} \\
+\midrule
+Fichier officiel sinc\_dim2\_input.csv & 200 & abscisses d'apprentissage fournies avec l'\'enonc\'e, ordre conserv\'e & \texttt{997facd8edf592eb} \\
+Apprentissage & 200 & cible sinus cardinal calcul\'ee sur les abscisses du fichier, sans bruit & \texttt{ec1822ee392bdb59} \\
+Validation & 400 & grille 20 x 20 des centres de mailles du carr\'e unit\'e, d\'eterministe & \texttt{e89505465710b5a4} \\
+Test & 1600 & grille 40 x 40, bornes incluses, lue une seule fois apr\`es le gel (DEC-20) & \texttt{b1ba6ec40d295ea4} \\
+\bottomrule
+\end{tabular}

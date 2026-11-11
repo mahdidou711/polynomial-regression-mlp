@@ -1,0 +1,5 @@
+jeu,n,origine,sha256
+Fichier officiel sinc_dim2_input.csv,200,"abscisses d'apprentissage fournies avec l'énoncé, ordre conservé",997facd8edf592eb
+Apprentissage,200,"cible sinus cardinal calculée sur les abscisses du fichier, sans bruit",ec1822ee392bdb59
+Validation,400,"grille 20 x 20 des centres de mailles du carré unité, déterministe",e89505465710b5a4
+Test,1600,"grille 40 x 40, bornes incluses, lue une seule fois après le gel (DEC-20)",b1ba6ec40d295ea4

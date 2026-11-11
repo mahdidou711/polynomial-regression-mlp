@@ -1,0 +1,12 @@
+% Genere par src/export (ne pas editer a la main). Source : mlp_2d_adam_grid.csv.
+% Colonnes : learning_rate_init, batch_size, rank_validation, selected, val_mse_mean, val_mse_std, val_mse_min, val_mse_max, n_warnings, stop_max_iter, n_iter_mean ; 4 lignes.
+\begin{tabular}{S[table-format=1e-2] r r c S[table-format=1.2e-2] S[table-format=1.2e-2] S[table-format=1.2e-2] S[table-format=1.2e-2] r r S[table-format=4]}
+\toprule
+{\(\eta\)} & {lot} & {rang} & {retenu} & {\(\overline{\mathrm{EQM}}\)} & {\(\sigma\)} & {min.} & {max.} & {avert.} & {plafond} & {it\'er.} \\
+\midrule
+1e-03 & 32 & 4 & non & 5.13e-02 & 1.07e-02 & 4.00e-02 & 7.81e-02 & 5 & 5 & 4016 \\
+1e-03 & 200 & 3 & non & 1.96e-02 & 1.74e-02 & 4.58e-03 & 5.08e-02 & 10 & 10 & 5000 \\
+1e-02 & 32 & 2 & non & 1.03e-02 & 1.93e-02 & 2.74e-03 & 6.51e-02 & 6 & 6 & 4256 \\
+1e-02 & 200 & 1 & oui & 4.72e-03 & 1.67e-03 & 1.84e-03 & 7.57e-03 & 10 & 10 & 5000 \\
+\bottomrule
+\end{tabular}

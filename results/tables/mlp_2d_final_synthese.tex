@@ -1,0 +1,11 @@
+% Genere par src/export (ne pas editer a la main). Source : derive de mlp_2d_final_test_stats.
+% Colonnes : roles, label, mse_mean, mse_std, mse_median, mse_min, mse_max, r2_mean, r2_min ; 3 lignes.
+\begin{tabular}{l l S[table-format=1.2e-2] S[table-format=1.2e-2] S[table-format=1.2e-2] S[table-format=1.2e-2] S[table-format=1.2e-2] S[table-format=1.5] S[table-format=1.4]}
+\toprule
+{r\^ole} & {configuration} & {EQMT moy.} & {\(\sigma\)} & {m\'ed.} & {min.} & {max.} & {\(\overline{R^2}\)} & {\(R^2\) min.} \\
+\midrule
+final & \texttt{lbfgs-tanh-50-25-a0.0001} & 2.48e-04 & 1.48e-04 & 2.11e-04 & 7.38e-05 & 5.18e-04 & 0.99669 & 0.9931 \\
+lbfgs\_h\_star & \texttt{lbfgs-tanh-50-a0.0001} & 3.91e-04 & 1.32e-04 & 3.91e-04 & 2.07e-04 & 6.19e-04 & 0.99479 & 0.9917 \\
+adam\_selected & \texttt{adam-50-lr0.01-b200} & 5.66e-03 & 1.89e-03 & 5.97e-03 & 2.45e-03 & 8.96e-03 & 0.92445 & 0.8805 \\
+\bottomrule
+\end{tabular}
