@@ -41,6 +41,23 @@ def plot_size_illustration(sizes):
     return fig
 
 
+def plot_sigma_illustration(sigmas):
+    """EQMT(d) d'une realisation illustrative (graine 42, N nominal) pour chaque sigma (AE4-05)."""
+    xt, yt = genere_base_test()
+    with style_context():
+        fig = new_figure()
+        ax = fig.add_subplot()
+        for sigma in sigmas:
+            x, y = genere_base_apprentissage(sigma=sigma, seed=42)
+            result = run_degree_sweep(x, y, xt, yt, diagnose=False, seed=42)
+            ax.semilogy(result.degrees, floor_for_log(result.eqm_test), 'o-', ms=3,
+                        label=f'σ = {sigma:g}')
+        ax.set(xlabel='degré', ylabel='EQMT',
+               title='Bruit : réalisation illustrative, graine 42, N = 20')
+        ax.legend(ncols=2)
+    return fig
+
+
 def plot_extrapolation(rows):
     x, y = genere_base_apprentissage(seed=42)
     xt, yt = genere_base_test()
@@ -74,6 +91,7 @@ def save_exploration_figures(sizes, sigmas, extra, directory):
     figures = [('exploration_nb_ex', plot_campaign(sizes, 'N')),
                ('exploration_sigma', plot_campaign(sigmas, 'σ')),
                ('exploration_nb_ex_seed42', plot_size_illustration(sizes)),
+               ('exploration_sigma_seed42', plot_sigma_illustration(sigmas)),
                ('exploration_extrapolation', plot_extrapolation(extra))]
     paths = []
     for name, fig in figures:

@@ -13,6 +13,7 @@ import pytest
 from matplotlib.figure import Figure
 
 from src.experiments.runner_1d_nominal import run_nominal, run_nominal_campaign
+from src.models import predict
 from src.visualization import plots_1d
 from src.visualization.style import DPI, FLOOR_LOG, floor_for_log, new_figure, save_figure
 
@@ -79,6 +80,19 @@ class TestSaveFigure:
         paths = save_figure(new_figure(), tmp_path / "nominal_v1.2")
         assert [p.name for p in paths] == ["nominal_v1.2.pdf", "nominal_v1.2.png"]
 
+    def test_two_exports_of_the_same_figure_are_identical_byte_for_byte(self, tmp_path):
+        """AE7-07 : le PDF ne porte plus de date de creation (reproductibilite octet a octet)."""
+        def make():
+            fig = new_figure(4, 3)
+            fig.add_subplot().plot([0, 1, 2], [0, 1, 4])
+            return fig
+
+        first = save_figure(make(), tmp_path / "a" / "f")
+        second = save_figure(make(), tmp_path / "b" / "f")
+        for p1, p2 in zip(first, second):
+            assert p1.read_bytes() == p2.read_bytes(), p1.suffix
+        assert b"/CreationDate" not in first[0].read_bytes()
+
     def test_no_pyplot_state_is_created(self, tmp_path):
         import sys
 
@@ -132,6 +146,50 @@ class TestFigures:
             assert ax.get_aspect() == 1.0 and ax.get_xlim() == ax.get_ylim()
             assert len(ax.lines[1].get_xdata()) == 200  # points de test
             assert ax.lines[0].get_xdata()[0] == ax.lines[0].get_ydata()[0]  # droite y = x
+
+    def test_parity_has_a_y_equals_x_legend_entry(self, nominal):
+        """AE3-08 : la droite y = x est legendee sur chaque panneau."""
+        for ax in plots_1d.plot_parity(nominal).axes:
+            texts = [t.get_text() for t in ax.get_legend().get_texts()]
+            assert texts == ["y = x"]
+
+    def test_parity_window_depends_on_the_target_only(self, nominal):
+        """AE3-08 : un modele divergent (d = 12) ne modifie pas la fenetre ; ses points exclus sont comptes."""
+        lo, hi = plots_1d.parity_window(nominal.y_test)
+        span = float(nominal.y_test.max() - nominal.y_test.min())
+        assert lo == pytest.approx(float(nominal.y_test.min()) - plots_1d.PARITY_PAD * span)
+        fig = plots_1d.plot_parity(nominal, degrees=[1, 12])
+        for ax in fig.axes:
+            assert (ax.get_xlim(), ax.get_ylim()) == ((lo, hi), (lo, hi))
+        y12 = nominal.y_pred_test[nominal.index_of(12)]
+        n_out = int(np.sum((y12 < lo) | (y12 > hi)))
+        assert n_out > 0  # le panneau d = 12 contient des points hors cadre
+        notes = [t.get_text() for t in fig.axes[1].texts]
+        assert len(notes) == 1 and notes[0].startswith(f"{n_out} points hors cadre")
+
+    def test_parity_panel_without_overflow_has_no_note(self, nominal):
+        fig = plots_1d.plot_parity(nominal, degrees=[nominal.optimal_degree])
+        assert len(fig.axes[0].texts) == 0
+
+    def test_fit_overflow_helper(self):
+        assert plots_1d.fit_overflow(np.array([-1.0, 0.0, 2.0])) is None  # bornes incluses
+        assert plots_1d.fit_overflow(np.array([-1.0, 3.5])) == 3.5
+        assert plots_1d.fit_overflow(np.array([-7.0, 1.0])) == 7.0
+
+    def test_fits_mark_every_clipped_panel_and_only_those(self, nominal):
+        """AE3-08 : un panneau dont le polynome sort de la fenetre est signale sur le panneau."""
+        xs = np.linspace(plots_1d.XMIN_NOMINAL, plots_1d.XMAX_NOMINAL, plots_1d.N_DENSE,
+                         endpoint=False)
+        expected = {int(d) for d, coef in zip(nominal.degrees, nominal.coefs)
+                    if plots_1d.fit_overflow(predict(coef, xs)) is not None}
+        assert expected, "le jeu nominal doit comporter des panneaux coupes (degres 3, 9, 11, 12)"
+        fig = plots_1d.plot_fits(nominal)
+        marked = {int(a.get_title().split("=")[1].split()[0]) for a in fig.axes
+                  if a.get_visible() and a.texts}
+        assert marked == expected
+        for a in fig.axes:
+            if a.get_visible():
+                assert ("coupé" in a.get_title()) == bool(a.texts)
 
     def test_parity_uses_requested_degrees(self, nominal):
         fig = plots_1d.plot_parity(nominal, degrees=[3, 4])

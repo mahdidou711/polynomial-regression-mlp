@@ -169,3 +169,45 @@ def test_plots_ne_referencent_pas_le_test():
             {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | \
             {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
     assert not {"genere_base_test_2d", "prepare_data_2d", "DataSplits2D"} & names
+
+
+def test_residu_trace_est_la_valeur_absolue_de_pred_moins_exact(monkeypatch):
+    """AE7-02 (A10) : le tableau Z des residus est |pred - exact|, y compris pour un ecart negatif."""
+    calls = []
+    original = Axes3D.plot_surface
+
+    def spy(self, X, Y, Z, *a, **k):
+        calls.append((X.copy(), Y.copy(), Z.copy()))
+        return original(self, X, Y, Z, *a, **k)
+
+    monkeypatch.setattr(Axes3D, "plot_surface", spy)
+
+    def below(pts):  # sous la cible d'un ecart variable : pred - exact < 0
+        return sinus_cardinal(pts) - 0.05 - 0.1 * pts[:, 0]
+
+    p.surfaces_board(below, COARSE)
+    X, Y, Z = calls[2]
+    np.testing.assert_allclose(Z, 0.05 + 0.1 * X, atol=1e-12)  # positif, = |pred - exact|
+    assert Z.min() > 0  # un oubli de np.abs donnerait des valeurs negatives
+    np.testing.assert_allclose(Z, np.abs(calls[1][2] - calls[0][2]))
+
+
+def test_figures_de_residus_enregistrees_utilisent_la_valeur_absolue(monkeypatch, tmp_path):
+    """AE7-02 : meme controle pour mlp_2d_surface_residus et la carte 2D, via save_mlp_figures."""
+    from matplotlib.axes import Axes
+    surf, mesh = [], []
+    original_surf, original_mesh = Axes3D.plot_surface, Axes.pcolormesh
+    monkeypatch.setattr(Axes3D, "plot_surface", lambda self, X, Y, Z, *a, **k: (
+        surf.append(Z.copy()), original_surf(self, X, Y, Z, *a, **k))[1])
+    monkeypatch.setattr(Axes, "pcolormesh", lambda self, X, Y, C, *a, **k: (
+        mesh.append(np.asarray(C).copy()), original_mesh(self, X, Y, C, *a, **k))[1])
+    inputs = {"figure_model": _Model(lambda x: sinus_cardinal(x) - 0.2),
+              "tanh_model": _Model(sinus_cardinal), "relu_model": _Model(sinus_cardinal),
+              "train": _data(1, 20), "test": _data(2, 30)}
+    p.save_mlp_figures(inputs, tmp_path, COARSE)
+    # ordre des surfaces : exacte, predite, residus, puis planche (3), puis activation (2)
+    np.testing.assert_allclose(surf[2], 0.2, atol=1e-12)
+    np.testing.assert_allclose(surf[5], 0.2, atol=1e-12)  # troisieme panneau de la planche
+    grid = [c for c in mesh if c.shape == (20, 20)]  # exclut le gradient de la barre de couleur
+    assert len(grid) == 1
+    np.testing.assert_allclose(grid[0], 0.2, atol=1e-12)

@@ -65,7 +65,8 @@ def test_exports_et_figures(tmp_path):
         rows = list(csv.DictReader(f))
     np.testing.assert_allclose(float(rows[0]['eqmt_median']), np.median(campaigns[10].eqm_test[:, 0]))
     figures = save_exploration_figures(campaigns, {0: run_campaign(Configuration(20,0))}, extra, tmp_path)
-    assert len(figures) == 8
+    assert len(figures) == 10  # 5 figures, PDF + PNG ; dont l'illustration sigma (AE4-05)
+    assert {p.stem for p in figures} >= {'exploration_sigma_seed42'}
     assert all(p.stat().st_size > 1000 for p in figures)
 
 

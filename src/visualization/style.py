@@ -4,7 +4,8 @@
 ``<path_stem>.png`` (300 DPI) ; PNG seul si ``vector=False`` (surfaces 3D). Les figures
 sont construites avec ``matplotlib.figure.Figure`` (sans ``pyplot``) : aucun etat global,
 aucun backend interactif, aucune figure conservee en memoire. L'etape 8 consolide ce
-module sans redefinir cette interface.
+module sans redefinir cette interface : les exports sont deterministes (PDF sans date de
+creation, AE7-07), deux exports successifs d'une meme figure sont identiques octet a octet.
 """
 
 from pathlib import Path
@@ -22,6 +23,10 @@ COLOR_TRAIN = colormaps[CMAP](0.05)  # bleu : apprentissage
 COLOR_TEST = colormaps[CMAP](0.95)  # rouge : test
 COLOR_TARGET = "0.15"  # gris fonce : fonction cible
 COLOR_FIT = colormaps[CMAP](0.80)
+
+# Metadonnees PDF : la date de creation est supprimee pour que deux exports successifs de la
+# meme figure soient identiques octet a octet (AE3-04 / AE7-07).
+PDF_METADATA = {"CreationDate": None}
 
 RC = {
     "font.size": 9,
@@ -65,7 +70,7 @@ def save_figure(fig: Figure, path_stem, vector: bool = True) -> list[Path]:
     with style_context():
         if vector:
             paths.append(stem.with_name(stem.name + ".pdf"))
-            fig.savefig(paths[-1], format="pdf")
+            fig.savefig(paths[-1], format="pdf", metadata=PDF_METADATA)
         paths.append(stem.with_name(stem.name + ".png"))
         fig.savefig(paths[-1], format="png", dpi=DPI)
     return paths
