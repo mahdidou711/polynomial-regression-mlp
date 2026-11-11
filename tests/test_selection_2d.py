@@ -326,3 +326,218 @@ def test_fichiers_de_selection_modifies_pendant_l_evaluation_detectes(campaign, 
     with pytest.raises(fin.SelectionError, match="ont change"):
         fin.evaluate_final(tables / par.SELECTION_FILE, campaign["store"], campaign["train"],
                            campaign["val"], tamper, tables_dir=tables, overrides=FAST)
+
+
+# ------------------------------------------------------------------------------------------
+# AE7-01 : sorties de l'evaluation finale contre des oracles independants du gel et du code
+# ------------------------------------------------------------------------------------------
+# Les oracles ci-dessous ne lisent que le cache (JSON bruts, sans load_record) et ne
+# reutilisent ni src.utils.metrics, ni les fonctions de selection, ni le gel : une erreur
+# commune au gel et a l'evaluation (role pointant vers une mauvaise configuration) ou une
+# metrique fausse ne peut donc pas se compenser. Le jeu de test employe (53 points, autre
+# fonction, autre graine) differe de l'apprentissage (200) et de la validation (40).
+_WIDTHS = (5, 10, 20, 50, 100, 200)  # litteraux de l'enonce, pas les constantes du code
+_ADAM_GRID = {(1e-3, 32), (1e-3, 200), (1e-2, 32), (1e-2, 200)}
+_ROLES = {"final", "lbfgs_h_star", "adam_selected"}
+
+
+def _distinct_test_set():
+    rng = np.random.default_rng(2026)
+    x = rng.random((53, 2))
+    return x, np.cos(5 * x[:, 0]) + x[:, 1] ** 2 + 0.05 * rng.standard_normal(53)
+
+
+def _oracle_metrics(y, p):
+    y, p = np.asarray(y, float), np.asarray(p, float)
+    mse = float(np.mean((y - p) ** 2))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    return {"mse": mse, "rmse": float(np.sqrt(mse)),
+            "r2": 1.0 - float(np.sum((y - p) ** 2)) / ss_tot,
+            "max_abs_error": float(np.max(np.abs(y - p)))}
+
+
+def _raw_store(store):
+    """Enregistrements du cache, lus en JSON brut : [(config, graine, record)]."""
+    out = []
+    for path in sorted(Path(store).glob("*.json")):
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        out.append((rec["identity"]["config"], rec["identity"]["seed"], rec))
+    return out
+
+
+def _mean_validation_by_config(raw):
+    groups = {}
+    for cfg, seed, rec in raw:
+        groups.setdefault(json.dumps(cfg, sort_keys=True), []).append(rec)
+    assert all(len(v) == 10 for v in groups.values())
+    return {k: (json.loads(k), float(np.mean([r["validation_metrics"]["mse"] for r in v])))
+            for k, v in groups.items()}
+
+
+def _expected_role_configs(store):
+    """Configuration attendue de chacun des trois roles, recalculee depuis la validation brute."""
+    by_cfg = _mean_validation_by_config(_raw_store(store))
+    nominal = {c["hidden_layer_sizes"][0]: m for c, m in by_cfg.values()
+               if c["solver"] == "lbfgs" and c["activation"] == "tanh" and c["alpha"] == 1e-4
+               and len(c["hidden_layer_sizes"]) == 1 and c["hidden_layer_sizes"][0] in _WIDTHS}
+    assert set(nominal) == set(_WIDTHS)
+    h_star = min(_WIDTHS, key=lambda h: (nominal[h], h))
+    adam = {k: (c, m) for k, (c, m) in by_cfg.items() if c["solver"] == "adam"}
+    assert {(c["learning_rate_init"], c["batch_size"]) for c, _ in adam.values()} == _ADAM_GRID
+    best_adam = min(adam.values(), key=lambda cm: cm[1])[0]
+    best_final = min(by_cfg.values(), key=lambda cm: cm[1])[0]
+    lbfgs = next(c for c, _ in by_cfg.values()
+                 if c["solver"] == "lbfgs" and c["activation"] == "tanh" and c["alpha"] == 1e-4
+                 and c["hidden_layer_sizes"] == [h_star])
+    return {"h_star": h_star, "final": best_final, "lbfgs_h_star": lbfgs,
+            "adam_selected": best_adam}
+
+
+@pytest.fixture(scope="module")
+def final_outputs(campaign, tmp_path_factory):
+    """Evaluation finale complete sur un jeu de test distinct, plus les modeles reentraines."""
+    import shutil
+    from threadpoolctl import threadpool_limits
+    tables = tmp_path_factory.mktemp("sorties_finales")
+    shutil.copy(campaign["gel"], tables / par.SELECTION_FILE)
+    test = _distinct_test_set()
+    built = {}
+    original = fin.rebuild_verified_model
+    mp = pytest.MonkeyPatch()
+    mp.setattr(fin, "rebuild_verified_model",
+               lambda rec, *a, **k: built.setdefault(rec["run_key"], original(rec, *a, **k)))
+    try:
+        with threadpool_limits(limits=1):
+            result = fin.evaluate_final(tables / par.SELECTION_FILE, campaign["store"],
+                                        campaign["train"], campaign["val"], lambda: test,
+                                        tables_dir=tables, overrides=FAST)
+    finally:
+        mp.undo()
+    return {"tables": tables, "result": result, "built": built, "test": test,
+            "runs": _read_csv(tables / "mlp_2d_final_test_runs.csv"),
+            "stats": _read_csv(tables / "mlp_2d_final_test_stats.csv"),
+            "comparison": _read_csv(tables / "mlp_2d_solver_comparison.csv"),
+            "expected": _expected_role_configs(campaign["store"])}
+
+
+def test_jeu_de_test_distinct_et_roles_attendus_discriminants(campaign, final_outputs):
+    """Garde de puissance : les trois roles visent trois configurations differentes, et
+    les metriques calculees sur le test different de celles de validation et d'apprentissage."""
+    exp = final_outputs["expected"]
+    keys = {json.dumps(exp[r], sort_keys=True) for r in _ROLES}
+    assert len(keys) == 3
+    alpha_variant = [c for c, _, _ in _raw_store(campaign["store"])
+                     if c["hidden_layer_sizes"] == exp["lbfgs_h_star"]["hidden_layer_sizes"]
+                     and c["solver"] == "lbfgs" and c["alpha"] != 1e-4]
+    assert alpha_variant  # une variante d'alpha existe dans le cache (cible possible d'une erreur)
+    assert len(final_outputs["test"][1]) not in (len(campaign["val"][1]), len(campaign["train"][1]))
+
+
+def test_chaque_role_pointe_vers_la_configuration_attendue(campaign, final_outputs):
+    """A03 : l'identite evaluee sous chaque role est comparee a la definition attendue
+    (recalculee depuis le cache), jamais au gel produit par le meme code."""
+    exp = final_outputs["expected"]
+    lit = exp["lbfgs_h_star"]
+    # definition litterale du role lbfgs H* : lbfgs, tanh, (H*,), alpha = 1e-4
+    assert (lit["solver"], lit["activation"], lit["hidden_layer_sizes"], lit["alpha"]) == (
+        "lbfgs", "tanh", [exp["h_star"]], 1e-4)
+    adam = exp["adam_selected"]
+    assert adam["solver"] == "adam" and adam["hidden_layer_sizes"] == [exp["h_star"]]
+    assert adam["activation"] == "tanh" and adam["alpha"] == 1e-4
+    assert (adam["learning_rate_init"], adam["batch_size"]) in _ADAM_GRID
+    by_role = {}
+    for row in final_outputs["runs"]:
+        record = json.loads((campaign["store"] / f"{row['run_key']}.json").read_text(encoding="utf-8"))
+        assert record["identity"]["seed"] == int(row["seed"])
+        for role in row["roles"].split(";"):
+            by_role.setdefault(role, []).append((int(row["seed"]), record["identity"]["config"]))
+    assert set(by_role) == _ROLES
+    for role, entries in by_role.items():
+        assert sorted(s for s, _ in entries) == sorted(SEEDS_MONTE_CARLO)  # 10 graines distinctes
+        assert all(cfg == exp[role] for _, cfg in entries), role
+
+
+def test_roles_coherents_entre_les_quatre_sorties(final_outputs):
+    runs = final_outputs["runs"]
+    role_of = {}
+    for r in runs:
+        role_of.setdefault(r["config_id"], r["roles"])
+        assert role_of[r["config_id"]] == r["roles"]
+    for table in ("stats", "comparison"):
+        assert {r["config_id"]: r["roles"] for r in final_outputs[table]} == role_of
+    configs = final_outputs["result"]["configs"]
+    assert {cid: ";".join(c["roles"]) for cid, c in configs.items()} == role_of
+    for cid, c in configs.items():  # etiquette lisible coherente avec l'identite du role
+        assert c["label"] == next(r["label"] for r in final_outputs["stats"] if r["config_id"] == cid)
+
+
+def test_metriques_de_test_de_chaque_run_egales_a_l_oracle(final_outputs):
+    """A04 : EQM, RMSE, R2 et erreur maximale de chaque run contre un oracle NumPy."""
+    x, y = final_outputs["test"]
+    assert len(final_outputs["runs"]) == 30
+    swapped = 0
+    for row in final_outputs["runs"]:
+        pred = final_outputs["built"][row["run_key"]].predict(x)
+        oracle = _oracle_metrics(y, pred)
+        for name, value in oracle.items():
+            assert float(row[f"test_{name}"]) == pytest.approx(value, rel=1e-9, abs=1e-12), name
+        # R2 a arguments inverses (mutation A04) : distinct de la valeur attendue
+        ss = float(np.sum((pred - np.mean(pred)) ** 2))
+        if ss > 0:
+            reversed_r2 = 1.0 - float(np.sum((y - pred) ** 2)) / ss
+            swapped += not np.isclose(reversed_r2, oracle["r2"], rtol=1e-3)
+    assert swapped >= 25  # la garde de puissance : l'inversion est visible sur presque tous les runs
+
+
+def test_metriques_de_test_distinctes_de_validation_et_apprentissage(campaign, final_outputs):
+    """Un jeu de donnees confondu (validation ou apprentissage au lieu du test) est detecte."""
+    x, y = final_outputs["test"]
+    for key in ("val", "train"):
+        xo, yo = campaign[key]
+        for row in final_outputs["runs"][::3]:
+            model = final_outputs["built"][row["run_key"]]
+            other = _oracle_metrics(yo, model.predict(xo))
+            for name in ("mse", "r2", "max_abs_error"):
+                assert float(row[f"test_{name}"]) != pytest.approx(other[name], rel=1e-6), (key, name)
+
+
+def test_statistiques_et_comparaison_recalculees_depuis_les_runs(campaign, final_outputs):
+    runs = {}
+    for r in final_outputs["runs"]:
+        runs.setdefault(r["config_id"], []).append(r)
+    assert len(final_outputs["stats"]) == 4 * len(runs)
+    for row in final_outputs["stats"]:
+        values = np.array([float(r[f"test_{row['metric']}"]) for r in runs[row["config_id"]]])
+        assert len(values) == 10
+        expected = {"mean": values.mean(), "std": values.std(ddof=1), "median": np.median(values),
+                    "min": values.min(), "max": values.max()}
+        for name, value in expected.items():
+            assert float(row[name]) == pytest.approx(value, rel=1e-9, abs=1e-12), (row["metric"], name)
+        stored = final_outputs["result"]["configs"][row["config_id"]]["test"][row["metric"]]
+        assert stored["mean"] == pytest.approx(float(row["mean"]), rel=1e-12)
+    for row in final_outputs["comparison"]:
+        mse = np.array([float(r["test_mse"]) for r in runs[row["config_id"]]])
+        val = np.array([json.loads((campaign["store"] / f"{r['run_key']}.json").read_text(
+            encoding="utf-8"))["validation_metrics"]["mse"] for r in runs[row["config_id"]]])
+        assert int(row["n_runs"]) == 10
+        for name, value in {"test_mse_mean": mse.mean(), "test_mse_std": mse.std(ddof=1),
+                            "test_mse_min": mse.min(), "test_mse_max": mse.max(),
+                            "val_mse_mean": val.mean()}.items():
+            assert float(row[name]) == pytest.approx(value, rel=1e-9), name
+
+
+def test_reseau_des_figures_metriques_oracle_et_graine_de_validation_minimale(campaign, final_outputs):
+    """Le reseau des figures est la graine d'EQM de validation minimale de la configuration
+    finale attendue ; ses metriques de test sont celles de l'oracle."""
+    exp_final = final_outputs["expected"]["final"]
+    final_runs = [(seed, rec) for cfg, seed, rec in _raw_store(campaign["store"]) if cfg == exp_final]
+    best_seed = min(final_runs, key=lambda sr: (sr[1]["validation_metrics"]["mse"],
+                                                SEEDS_MONTE_CARLO.index(sr[0])))[0]
+    flagged = [r for r in final_outputs["runs"] if r["is_figure_network"] == "True"]
+    assert len(flagged) == 1 and int(flagged[0]["seed"]) == best_seed
+    figure = final_outputs["result"]["figure_network"]
+    assert figure["seed"] == best_seed
+    x, y = final_outputs["test"]
+    model = final_outputs["built"][flagged[0]["run_key"]]
+    for name, value in _oracle_metrics(y, model.predict(x)).items():
+        assert figure["test_metrics"][name] == pytest.approx(value, rel=1e-9, abs=1e-12), name
