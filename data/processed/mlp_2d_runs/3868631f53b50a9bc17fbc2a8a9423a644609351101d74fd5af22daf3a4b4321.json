@@ -1,0 +1,98 @@
+{
+ "diagnostics": {
+  "convergence_warnings": [],
+  "elapsed_seconds": 0.4961133449978661,
+  "iteration_limit_reached": false,
+  "loss": 5.955197178859094e-05,
+  "loss_curve": null,
+  "loss_curve_available": false,
+  "n_iter": 1490,
+  "status": "stopped_unverified",
+  "tail_loss": null,
+  "tail_oscillation": false
+ },
+ "identity": {
+  "blas_threads": 1,
+  "config": {
+   "activation": "tanh",
+   "alpha": 0.0001,
+   "batch_size": "auto",
+   "hidden_layer_sizes": [
+    50,
+    25
+   ],
+   "learning_rate_init": 0.001,
+   "max_fun": 100000,
+   "max_iter": 10000,
+   "n_iter_no_change": 10,
+   "solver": "lbfgs",
+   "tol": 1e-06
+  },
+  "data": {
+   "train_sha256": "ec1822ee392bdb59657961bb2ba20e9f40f107151e039c7ef8c460b05b0b3210",
+   "validation_sha256": "e89505465710b5a46d6442ee59c897f21517a3e7a83b1b2ad3d7c26b819b95de"
+  },
+  "engine_fixed": {
+   "beta_1": 0.9,
+   "beta_2": 0.999,
+   "early_stopping": false,
+   "learning_rate": "constant",
+   "shuffle": true
+  },
+  "engine_sha256": "2f46cfd6449346b1c7323f1f40588d568f73d540426acbe367190d49a1fe5d70",
+  "seed": 1617,
+  "versions": {
+   "numpy": "2.4.6",
+   "python": "3.12.3",
+   "scikit-learn": "1.8.0",
+   "scipy": "1.17.1"
+  }
+ },
+ "parameters": {
+  "activation": "tanh",
+  "alpha": 0.0001,
+  "batch_size": "auto",
+  "beta_1": 0.9,
+  "beta_2": 0.999,
+  "early_stopping": false,
+  "epsilon": 1e-08,
+  "hidden_layer_sizes": [
+   50,
+   25
+  ],
+  "learning_rate": "constant",
+  "learning_rate_init": 0.001,
+  "loss": "squared_error",
+  "max_fun": 100000,
+  "max_iter": 10000,
+  "momentum": 0.9,
+  "n_iter_no_change": 10,
+  "nesterovs_momentum": true,
+  "power_t": 0.5,
+  "random_state": 1617,
+  "shuffle": true,
+  "solver": "lbfgs",
+  "tol": 1e-06,
+  "validation_fraction": 0.1,
+  "verbose": false,
+  "warm_start": false
+ },
+ "payload_sha256": "99878acf0cb3ddefef7f50b0313b5e87cef3baa4f2566338c1ea26b175628b56",
+ "run_key": "3868631f53b50a9bc17fbc2a8a9423a644609351101d74fd5af22daf3a4b4321",
+ "schema": "c0-mlp2d-run/1",
+ "status": "completed",
+ "stop_cause": "none",
+ "training_metrics": {
+  "max_abs_error": 0.03714778198524851,
+  "mse": 5.0047334475874505e-05,
+  "r2": 0.9993395325707185,
+  "rmse": 0.007074414072972723
+ },
+ "validation_metrics": {
+  "max_abs_error": 0.21310795921836884,
+  "mse": 0.0002599894505041282,
+  "r2": 0.9966670844309456,
+  "rmse": 0.016124188367298623
+ },
+ "weights_sha256": "d8f82f76373c320e2e5fcc0845f2557e481660f5a008e8e1f6791f8acc2e6f9f"
+}
