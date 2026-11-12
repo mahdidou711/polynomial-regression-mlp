@@ -1,7 +1,7 @@
 """Etape 8 : formateur LaTeX, registre, controles statiques, comparaison et pipeline d'export.
 
-Aucune compilation LaTeX (DEC-22) : les tables sont validees par analyse statique ; la
-compilabilite reelle est constatee par l'utilisateur sur Overleaf (apercu autonome).
+Les tables sont validees par analyse statique ; la compilabilite reelle est constatee par
+compilation de l'apercu autonome.
 """
 import hashlib
 import json

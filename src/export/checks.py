@@ -2,7 +2,7 @@
 
 Chaque controle renvoie un ``Check`` (statut ``passed``, ``failed``, ``warning`` ou
 ``not run``) ; aucun ne modifie un fichier, n'entraine un reseau ni ne lit la base de test.
-Les controles LaTeX sont statiques : aucune compilation (DEC-22 et regle de livraison).
+Les controles LaTeX sont statiques : ils analysent les sources sans les compiler.
 """
 
 import json
