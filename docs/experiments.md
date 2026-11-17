@@ -19,7 +19,7 @@ Measured values for every experiment below are in [results](results.md). Methods
 
 ### Nominal experiment
 
-For each degree the polynomial is fitted on the training set and the training error (EQM) and test error (EQMT) are recorded. $C^\*$ is the degree minimising EQMT. The seed-42 realisation provides the figures and the solver diagnostics. The same experiment is repeated over the 50 statistical seeds, which gives the distribution of $C^\*$ and the median and mean errors per degree.
+For each degree the polynomial is fitted on the training set and the training error (MSE) and test error (test MSE) are recorded. $C^\*$ is the degree minimising test MSE. The seed-42 realisation provides the figures and the solver diagnostics. The same experiment is repeated over the 50 statistical seeds, which gives the distribution of $C^\*$ and the median and mean errors per degree.
 
 ### Explorations
 

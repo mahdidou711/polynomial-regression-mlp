@@ -1,22 +1,22 @@
-"""Campagne MLP 2D nominale et infrastructure des runs (etape 7, lot A).
+"""Nominal 2D MLP campaign and run infrastructure.
 
-Ce module execute EXP-2D-NOM (H = 5..200, 10 graines, DEC-18), sert de socle au runner
-parametrique (cache, reprise, statistiques, tables) et choisit H* sur la validation
-uniquement (DEC-20). Il ne reference jamais la base de test (reserve R3).
+This module runs the width study (H = 5..200, 10 seeds), serves as the foundation of the
+parametric runner (cache, resume, statistics, tables) and selects H* on validation
+only. It never references the test set.
 
-Cache : un fichier JSON par realisation (configuration, graine), nomme par le SHA-256 de son
-identite complete (configuration, parametres fixes du moteur, graine, empreinte des donnees,
-versions, empreinte du moteur, nombre de threads BLAS). Un fichier n'existe que si le run est
-complet (ecriture atomique) ; la reprise ne recalcule jamais un run valide.
+Cache: one JSON file per realisation (configuration, seed), named by the SHA-256 of its
+complete identity (configuration, fixed engine parameters, seed, data fingerprint,
+versions, engine fingerprint, number of BLAS threads). A file exists only if the run is
+complete (atomic write); resuming never recomputes a valid run.
 
-Commande : OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m src.experiments.runner_2d_nominal
+Command: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m src.experiments.runner_2d_nominal
 
-Attention (AE7-04) : hors ``--verify-only``, cette commande reecrit dans ``--tables-dir`` (par
-defaut ``results/tables``) les tables ``mlp_2d_runs.csv``, ``mlp_2d_plan.csv``,
-``mlp_2d_config_stats.csv`` et ``mlp_2d_metadata.json`` avec le seul lot B (61 lignes de plan au
-lieu de 211) ; seule la reagregation du runner parametrique restitue les tables de reference.
-Pour un controle ou une reproduction, utiliser ``--verify-only`` ou ``python main.py verify`` /
-``python main.py reproduce --out DIR`` (qui n'ecrivent jamais dans ``results/tables``).
+Warning: outside ``--verify-only``, this command rewrites in ``--tables-dir`` (by
+default ``results/tables``) the tables ``mlp_2d_runs.csv``, ``mlp_2d_plan.csv``,
+``mlp_2d_config_stats.csv`` and ``mlp_2d_metadata.json`` with stage B only (61 plan rows
+instead of 211); only the re-aggregation of the parametric runner restores the reference tables.
+For a check or a reproduction, use ``--verify-only`` or ``python main.py verify`` /
+``python main.py reproduce --out DIR`` (which never write into ``results/tables``).
 """
 
 import argparse
@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 from threadpoolctl import threadpool_info
 
-from src.data.generator_2d import genere_base_apprentissage_2d, genere_base_validation_2d
+from src.data.generator_2d import generate_training_set_2d, generate_validation_set_2d
 from src.models.mlp import MLPConfig, train_mlp
 from src.utils.logger import environment_info, get_logger, log_event
 from src.utils.seeding import SEEDS_MONTE_CARLO
@@ -45,31 +45,31 @@ TABLES_DIR = PROJECT_ROOT / "results" / "tables"
 FIGURES_DIR = PROJECT_ROOT / "results" / "figures" / "mlp"
 ENGINE_PATH = PROJECT_ROOT / "src" / "models" / "mlp.py"
 
-WIDTHS = (5, 10, 20, 50, 100, 200)  # ARB-04
-TOPOLOGIES = ((20, 10), (50, 25))  # ARB-04
-ALPHAS = (1e-5, 1e-3, 1e-1)  # ARB-06
-REG_REFERENCE_WIDTH = 100  # architecture sur-parametree de EXP-2D-REG
-ADAM_GRID = ((1e-3, 32), (1e-3, 200), (1e-2, 32), (1e-2, 200))  # DEC-19, ordre contractuel
+WIDTHS = (5, 10, 20, 50, 100, 200)
+TOPOLOGIES = ((20, 10), (50, 25))
+ALPHAS = (1e-5, 1e-3, 1e-1)
+REG_REFERENCE_WIDTH = 100  # over-parameterised architecture of the regularisation study
+ADAM_GRID = ((1e-3, 32), (1e-3, 200), (1e-2, 32), (1e-2, 200))  # fixed grid order
 N_RUNS = len(SEEDS_MONTE_CARLO)
 METRICS = ("mse", "rmse", "r2", "max_abs_error")
 STOP_CAUSES = ("none", "max_iter", "max_fun", "other_warning")
 SCHEMA = "c0-mlp2d-run/1"
-# Parametres imposes par le moteur (train_mlp) et inclus dans l'identite d'un run.
+# Parameters imposed by the engine (train_mlp) and included in the identity of a run.
 ENGINE_FIXED = {"early_stopping": False, "shuffle": True, "learning_rate": "constant",
                 "beta_1": 0.9, "beta_2": 0.999}
 RECORD_KEYS = frozenset({"schema", "identity", "run_key", "status", "parameters",
                          "training_metrics", "validation_metrics", "diagnostics",
                          "stop_cause", "weights_sha256", "payload_sha256"})
 
-_logger = logging.getLogger("c0_tp2_mlp.runner_2d")
+_logger = logging.getLogger("polynomial_mlp.runner_2d")
 
 
 class StoreError(RuntimeError):
-    """Enregistrement du cache invalide, incoherent ou etranger au plan."""
+    """Cache record that is invalid, inconsistent or foreign to the plan."""
 
 
 # --------------------------------------------------------------------------
-# JSON canonique et empreintes
+# Canonical JSON and fingerprints
 # --------------------------------------------------------------------------
 def _plain(value):
     if isinstance(value, np.generic):
@@ -84,7 +84,7 @@ def _plain(value):
 
 
 def canonical(obj) -> str:
-    """JSON compact, cles triees, sans NaN : base de toutes les empreintes."""
+    """Compact JSON, sorted keys, no NaN: basis of all the fingerprints."""
     return json.dumps(_plain(obj), sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
@@ -106,13 +106,13 @@ def _array_digest(*arrays) -> str:
 
 
 def data_fingerprint(x_train, y_train, x_validation, y_validation) -> dict:
-    """Empreintes SHA-256 des octets (float64) de l'apprentissage et de la validation."""
+    """SHA-256 fingerprints of the bytes (float64) of the training and validation sets."""
     return {"train_sha256": _array_digest(x_train, y_train),
             "validation_sha256": _array_digest(x_validation, y_validation)}
 
 
 def weights_sha256(model) -> str:
-    """Empreinte des poids et biais (float64 contigus, formes incluses)."""
+    """Fingerprint of the weights and biases (contiguous float64, shapes included)."""
     h = hashlib.sha256()
     for name, arrays in (("coefs", model.coefs_), ("intercepts", model.intercepts_)):
         for a in arrays:
@@ -123,15 +123,15 @@ def weights_sha256(model) -> str:
 
 
 # --------------------------------------------------------------------------
-# Configurations et plan
+# Configurations and plan
 # --------------------------------------------------------------------------
 def nominal_config(layers, **overrides) -> MLPConfig:
-    """Configuration DEC-18 (tanh, lbfgs, alpha 1e-4, 10000 / 100000, tol 1e-6) + surcharges."""
+    """Default configuration (tanh, lbfgs, alpha 1e-4, 10000 / 100000, tol 1e-6) + overrides."""
     return MLPConfig(hidden_layer_sizes=tuple(layers), **overrides)
 
 
 def adam_config(h: int, learning_rate_init: float, batch_size: int) -> MLPConfig:
-    """Protocole DEC-19 : le reste (constant, early_stopping, shuffle, betas) vient du moteur."""
+    """Adam protocol: the rest (constant, early_stopping, shuffle, betas) comes from the engine."""
     return MLPConfig(hidden_layer_sizes=(h,), activation="tanh", solver="adam", alpha=1e-4,
                      max_iter=5000, tol=1e-8, n_iter_no_change=200,
                      learning_rate_init=learning_rate_init, batch_size=batch_size)
@@ -176,12 +176,12 @@ def _apply(config, overrides):
 
 
 def nominal_plan(overrides=None) -> list:
-    """EXP-2D-NOM : 6 largeurs. ``overrides`` (tests uniquement) remplace des champs de MLPConfig."""
+    """Width study: 6 widths. ``overrides`` (tests only) replaces fields of MLPConfig."""
     return [PlanEntry("NOM", f"H{h}", _apply(nominal_config((h,)), overrides)) for h in WIDTHS]
 
 
 def contractual_configs() -> list:
-    """Toutes les configurations contractuelles, pour n'importe quelle valeur de H*."""
+    """All the contractual configurations, for any value of H*."""
     configs = []
     for h in WIDTHS:
         configs.append(nominal_config((h,)))
@@ -201,20 +201,20 @@ def is_nominal_store(store) -> bool:
 
 
 # --------------------------------------------------------------------------
-# Environnement : threads BLAS, identite
+# Environment: BLAS threads, identity
 # --------------------------------------------------------------------------
 def current_threads() -> int:
-    """Plus grand nombre de threads parmi les bibliotheques BLAS / OpenMP chargees."""
+    """Largest number of threads among the loaded BLAS / OpenMP libraries."""
     return max((int(p["num_threads"]) for p in threadpool_info()), default=1)
 
 
 def check_threads() -> int:
-    """Refuse de demarrer si un pool BLAS ou OpenMP depasse 1 thread (D7-04)."""
+    """Refuse to start if a BLAS or OpenMP pool exceeds 1 thread."""
     pools = [p for p in threadpool_info() if int(p["num_threads"]) > 1]
     if pools:
         detail = ", ".join(f"{p.get('internal_api')}={p['num_threads']}" for p in pools)
-        raise RuntimeError("un seul thread BLAS/OpenMP requis (OMP_NUM_THREADS=1 "
-                           f"OPENBLAS_NUM_THREADS=1 avant le demarrage de Python) : {detail}")
+        raise RuntimeError("a single BLAS/OpenMP thread is required (OMP_NUM_THREADS=1 "
+                           f"OPENBLAS_NUM_THREADS=1 before starting Python): {detail}")
     return current_threads()
 
 
@@ -234,7 +234,7 @@ def run_key(identity) -> str:
 
 
 def plan_keys(plan, fingerprint, environment) -> list:
-    """Cles de toutes les realisations du plan, dans l'ordre (doublons de role inclus)."""
+    """Keys of all the realisations of the plan, in order (role duplicates included)."""
     return [run_key(run_identity(e.config, s, fingerprint, environment))
             for e in plan for s in e.seeds]
 
@@ -245,10 +245,10 @@ def contractual_keys(fingerprint, environment) -> frozenset:
 
 
 # --------------------------------------------------------------------------
-# Enregistrements
+# Records
 # --------------------------------------------------------------------------
 def stop_cause(diagnostics, solver) -> str:
-    """Cause d'arret deduite du texte d'avertissement conserve par le moteur."""
+    """Stopping cause deduced from the warning text kept by the engine."""
     warns = diagnostics["convergence_warnings"]
     if not warns:
         return "none"
@@ -275,24 +275,24 @@ def build_record(run, identity, key) -> dict:
 
 
 def load_record(path) -> dict:
-    """Lit et valide un enregistrement (schema ferme, hash, cle, nom) ; StoreError sinon."""
+    """Read and validate a record (closed schema, hash, key, name); StoreError otherwise."""
     path = Path(path)
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise StoreError(f"{path.name} : illisible ({exc})") from exc
+        raise StoreError(f"{path.name} : unreadable ({exc})") from exc
     if not isinstance(record, dict) or set(record) != RECORD_KEYS:
-        raise StoreError(f"{path.name} : schema ferme non respecte (I7)")
+        raise StoreError(f"{path.name} : closed schema not respected")
     if record["schema"] != SCHEMA or record["status"] != "completed":
-        raise StoreError(f"{path.name} : schema ou statut invalide")
+        raise StoreError(f"{path.name} : invalid schema or status")
     body = {k: v for k, v in record.items() if k != "payload_sha256"}
     try:
         if sha256_text(canonical(body)) != record["payload_sha256"]:
-            raise StoreError(f"{path.name} : payload_sha256 invalide (I3)")
+            raise StoreError(f"{path.name} : invalid payload_sha256")
         if run_key(record["identity"]) != record["run_key"] or path.name != record["run_key"] + ".json":
-            raise StoreError(f"{path.name} : cle incoherente avec l'identite (I2)")
+            raise StoreError(f"{path.name} : key inconsistent with the identity")
     except (TypeError, ValueError) as exc:
-        raise StoreError(f"{path.name} : contenu invalide ({exc})") from exc
+        raise StoreError(f"{path.name} : invalid content ({exc})") from exc
     return record
 
 
@@ -314,11 +314,11 @@ def _atomic_write(path, record) -> Path:
 
 
 def run_strict(config, seed, xt, yt, xv, yv, logger=None):
-    """``train_mlp`` avec tout avertissement autre que ConvergenceWarning transforme en erreur.
+    """``train_mlp`` with any warning other than ConvergenceWarning turned into an error.
 
-    Garde contre ``Training interrupted by user`` : scikit-learn absorbe KeyboardInterrupt
-    pendant un run adam et ne produit qu'un UserWarning ; sans ce filtre, un modele tronque
-    passerait pour termine.
+    Guard against ``Training interrupted by user``: scikit-learn swallows KeyboardInterrupt
+    during an adam run and only emits a UserWarning; without this filter, a truncated model
+    would pass for a finished one.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -326,12 +326,12 @@ def run_strict(config, seed, xt, yt, xv, yv, logger=None):
 
 
 def ensure_runs(plan, x_train, y_train, x_validation, y_validation, store, logger=None) -> dict:
-    """Entraine les realisations manquantes ; retourne {run_key: enregistrement}.
+    """Train the missing realisations; return {run_key: record}.
 
-    Une realisation partagee entre roles n'est entrainee qu'une fois ; un run valide present
-    dans ``store`` n'est jamais recalcule. Une erreur ecrit ``<cle>.failed.json`` et est
-    propagee (aucune exclusion silencieuse). Le depot nominal refuse toute configuration non
-    contractuelle (I8).
+    A realisation shared between roles is trained only once; a valid run present
+    in ``store`` is never recomputed. An error writes ``<key>.failed.json`` and is
+    propagated (no silent exclusion). The nominal store refuses any non-contractual
+    configuration.
     """
     store = Path(store)
     if is_nominal_store(store):
@@ -339,8 +339,8 @@ def ensure_runs(plan, x_train, y_train, x_validation, y_validation, store, logge
         bad = [config_label(e.config) for e in plan if config_id(e.config) not in allowed]
         bad += [config_label(e.config) for e in plan if tuple(e.seeds) != SEEDS_MONTE_CARLO]
         if bad:
-            raise ValueError(f"configuration ou graines non contractuelles refusees dans le "
-                             f"depot nominal (I8) : {sorted(set(bad))}")
+            raise ValueError(f"non-contractual configuration or seeds refused in the "
+                             f"nominal store: {sorted(set(bad))}")
     threads = check_threads()
     fingerprint = data_fingerprint(x_train, y_train, x_validation, y_validation)
     environment = environment_identity(threads)
@@ -374,17 +374,17 @@ def ensure_runs(plan, x_train, y_train, x_validation, y_validation, store, logge
 
 
 def verify_store(store, required=(), allowed=None) -> dict:
-    """Controle en lecture seule des invariants I1 a I4 ; ne modifie ni ne supprime rien."""
+    """Read-only check of the store invariants; modifies or deletes nothing."""
     store = Path(store)
     anomalies, notes, keys = [], [], set()
     if not store.is_dir():
         return {"ok": False, "n_records": 0, "missing": list(required),
-                "anomalies": [f"depot absent : {store}"], "notes": []}
+                "anomalies": [f"store missing: {store}"], "notes": []}
     for p in sorted(store.iterdir()):
         if p.name.endswith(".json.tmp"):
-            notes.append(f"fichier temporaire residuel (ignore) : {p.name}")
+            notes.append(f"leftover temporary file (ignored): {p.name}")
         elif p.name.endswith(".failed.json"):
-            anomalies.append(f"echec enregistre a analyser : {p.name}")
+            anomalies.append(f"recorded failure to analyse: {p.name}")
         elif p.name.endswith(".json"):
             try:
                 record = load_record(p)
@@ -393,28 +393,28 @@ def verify_store(store, required=(), allowed=None) -> dict:
                 continue
             keys.add(record["run_key"])
             if allowed is not None and record["run_key"] not in allowed:
-                anomalies.append(f"{p.name} : etranger au plan contractuel (I4)")
+                anomalies.append(f"{p.name} : foreign to the contractual plan")
         else:
-            anomalies.append(f"fichier etranger : {p.name}")
+            anomalies.append(f"foreign file: {p.name}")
     missing = [k for k in required if k not in keys]
     return {"ok": not anomalies and not missing, "n_records": len(keys),
             "missing": missing, "anomalies": anomalies, "notes": notes}
 
 
 def load_config_records(config, seeds, store, fingerprint, environment) -> list:
-    """Enregistrements des graines de ``config`` ; erreur si l'un manque (I6)."""
+    """Records of the seeds of ``config``; error if one is missing."""
     records = []
     for seed in seeds:
         key = run_key(run_identity(config, seed, fingerprint, environment))
         path = Path(store) / f"{key}.json"
         if not path.exists():
-            raise StoreError(f"realisation manquante : {config_label(config)}, graine {seed}")
+            raise StoreError(f"missing realisation: {config_label(config)}, seed {seed}")
         records.append(load_record(path))
     return records
 
 
 # --------------------------------------------------------------------------
-# Statistiques et selection (validation uniquement)
+# Statistics and selection (validation only)
 # --------------------------------------------------------------------------
 def summary_stats(values) -> dict:
     v = np.asarray(values, dtype=float)
@@ -424,9 +424,9 @@ def summary_stats(values) -> dict:
 
 
 def describe(records, expected_runs=N_RUNS) -> dict:
-    """Statistiques descriptives (R2) ; refuse un effectif incomplet (I6)."""
+    """Descriptive statistics; refuses an incomplete sample."""
     if len(records) != expected_runs:
-        raise ValueError(f"{len(records)} runs au lieu de {expected_runs} (I6)")
+        raise ValueError(f"{len(records)} runs instead of {expected_runs}")
     out = {"n_runs": len(records)}
     for split in ("training", "validation"):
         out[split] = {m: summary_stats([r[f"{split}_metrics"][m] for r in records])
@@ -444,21 +444,21 @@ def validation_mean(stats, expected_runs=N_RUNS) -> float:
         raise ValueError("configuration incomplete")
     value = stats["validation"]["mse"]["mean"]
     if not np.isfinite(value):
-        raise ValueError("EQM de validation moyenne non finie")
+        raise ValueError("non-finite mean validation MSE")
     return float(value)
 
 
 def select_width(stats_by_width) -> dict:
-    """H* = argmin de l'EQM de validation moyenne ; egalite exacte : plus petite largeur (D7-01)."""
+    """H* = argmin of the mean validation MSE; exact tie: smallest width."""
     if not stats_by_width:
-        raise ValueError("aucune largeur")
+        raise ValueError("no width")
     ranking = sorted(((validation_mean(s), int(h)) for h, s in stats_by_width.items()))
     best = ranking[0][0]
     return {"h_star": ranking[0][1],
             "ranking": [{"width": h, "mean_validation_mse": m,
                          "n_runs": stats_by_width[h]["n_runs"]} for m, h in ranking],
             "tie_applied": sum(m == best for m, _ in ranking) > 1,
-            "rule": "plus petite moyenne de l'EQM de validation ; egalite : plus petite largeur"}
+            "rule": "smallest mean validation MSE; tie: smallest width"}
 
 
 # --------------------------------------------------------------------------
@@ -491,7 +491,7 @@ def write_json(path, obj) -> Path:
 
 
 def collect_stats(plan, store, fingerprint, environment) -> dict:
-    """{config_id: {config, roles, records, stats}} dans l'ordre du plan (configs distinctes)."""
+    """{config_id: {config, roles, records, stats}} in plan order (distinct configurations)."""
     out = {}
     for entry in plan:
         cid = config_id(entry.config)
@@ -504,7 +504,7 @@ def collect_stats(plan, store, fingerprint, environment) -> dict:
 
 
 def write_run_tables(plan, collected, fingerprint, environment, tables_dir) -> list:
-    """mlp_2d_plan.csv, mlp_2d_runs.csv, mlp_2d_config_stats.csv (ordre deterministe du plan)."""
+    """mlp_2d_plan.csv, mlp_2d_runs.csv, mlp_2d_config_stats.csv (deterministic plan order)."""
     tables_dir = Path(tables_dir)
     seen, plan_rows = set(), []
     for e in plan:
@@ -564,34 +564,34 @@ def write_metadata(path, plan, fingerprint, environment, h_star=None) -> Path:
             "engine_fixed": ENGINE_FIXED, "data": fingerprint, "environment": environment,
             "h_star": h_star, "n_plan_entries": len(plan),
             "store": "data/processed/mlp_2d_runs",
-            "selection": "EQM de validation moyenne ; egalites : D7-01 (avenant 11)"}
+            "selection": "mean validation MSE; ties: smallest width, then plan order"}
     return write_json(path, meta)
 
 
-def load_official_data():
-    """Apprentissage (CSV officiel) et validation ; le test n'est pas charge ici."""
-    xt, yt = genere_base_apprentissage_2d()
-    xv, yv = genere_base_validation_2d()
+def load_input_data():
+    """Training (reference CSV) and validation; the test set is not loaded here."""
+    xt, yt = generate_training_set_2d()
+    xv, yv = generate_validation_set_2d()
     return xt, yt, xv, yv
 
 
 # --------------------------------------------------------------------------
-# Point d'entree : lot B
+# Entry point: stage B
 # --------------------------------------------------------------------------
 def build_parser(description):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--store", type=Path, default=NOMINAL_STORE)
     parser.add_argument("--tables-dir", type=Path, default=TABLES_DIR)
-    parser.add_argument("--log-file", type=Path, default=None, help="journal JSON Lines (hors depot)")
+    parser.add_argument("--log-file", type=Path, default=None, help="JSON Lines log (outside the repository)")
     parser.add_argument("--verify-only", action="store_true",
-                        help="controle des invariants sans entrainement")
+                        help="check the invariants without training")
     return parser
 
 
 def main(argv=None) -> int:
     args = build_parser(__doc__.splitlines()[0]).parse_args(argv)
     threads = check_threads()
-    xt, yt, xv, yv = load_official_data()
+    xt, yt, xv, yv = load_input_data()
     fingerprint = data_fingerprint(xt, yt, xv, yv)
     environment = environment_identity(threads)
     plan = nominal_plan()
@@ -600,7 +600,7 @@ def main(argv=None) -> int:
                               contractual_keys(fingerprint, environment))
         print(json.dumps(report, indent=1))
         return 0 if report["ok"] else 1
-    lg = get_logger("c0_tp2_mlp", log_file=args.log_file)
+    lg = get_logger("polynomial_mlp", log_file=args.log_file)
     log_event(lg, "nominal_2d_start", n_runs=len(plan) * N_RUNS, **environment_info())
     try:
         ensure_runs(plan, xt, yt, xv, yv, args.store, lg)

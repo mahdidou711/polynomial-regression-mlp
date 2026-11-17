@@ -1,25 +1,25 @@
-"""Generation des donnees (etape 1 : 1D)."""
+"""Data generation."""
 
 from .generator_1d import (
     N_TEST_NOMINAL,
-    NB_EX_NOMINAL,
+    N_SAMPLES_NOMINAL,
     SIGMA_NOMINAL,
     XMAX_NOMINAL,
     XMIN_NOMINAL,
-    fonction_cible,
-    genere_base_apprentissage,
-    genere_base_test,
-    genere_exemple_dim1,
+    target_function,
+    generate_training_set,
+    generate_test_set,
+    generate_example_1d,
 )
 
 __all__ = [
     "N_TEST_NOMINAL",
-    "NB_EX_NOMINAL",
+    "N_SAMPLES_NOMINAL",
     "SIGMA_NOMINAL",
     "XMAX_NOMINAL",
     "XMIN_NOMINAL",
-    "fonction_cible",
-    "genere_base_apprentissage",
-    "genere_base_test",
-    "genere_exemple_dim1",
+    "target_function",
+    "generate_training_set",
+    "generate_test_set",
+    "generate_example_1d",
 ]

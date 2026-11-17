@@ -23,10 +23,10 @@ def pytest_collection_modifyitems(config, items):
         return
     training_modules = {"test_mlp_pipeline.py", "test_experiment_2d.py", "test_selection_2d.py"}
     training_tests = {
-        "test_figures_de_campagne",
-        "test_regeneration_complete_identique_au_depot",
-        "test_failed_json_isole_rend_verify_store_non_conforme",
-        "test_failed_json_sans_run_valide_est_signale_et_le_run_reste_manquant",
+        "test_campaign_figures",
+        "test_complete_regeneration_identical_to_the_repository",
+        "test_isolated_failed_json_makes_verify_store_non_conforming",
+        "test_failed_json_without_valid_run_is_reported_and_the_run_stays_missing",
     }
     for item in items:
         if item.path.name in training_modules or item.originalname in training_tests:

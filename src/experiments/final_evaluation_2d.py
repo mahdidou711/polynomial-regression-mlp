@@ -1,13 +1,13 @@
-"""Evaluation finale unique sur le test (etape 7, lot D) ; seul module a lire la base de test.
+"""Single final evaluation on the test set; the only module that reads the test data.
 
-Sequence imposee (DEC-20, R3) : (1) verification du gel de selection et recalcul de la
-selection depuis les seuls enregistrements de validation ; (2) reentrainement de chaque modele
-du perimetre et verification de l'empreinte des poids ; (3) seulement alors, chargement du test.
-Perimetre (D7-05) : configuration finale, lbfgs H* et meilleur reglage adam, 10 graines chacun,
-entrainements identiques dedoublonnes. Ce module ne choisit rien et n'ecrit aucun fichier de
-selection : les empreintes des fichiers de selection sont verifiees avant et apres.
+Mandatory sequence: (1) check the selection freeze and recompute the selection from
+the validation records alone; (2) retrain each model of the scope and check the
+fingerprint of its weights; (3) only then, load the test set.
+Scope: final configuration, lbfgs H* and best adam setting, 10 seeds each,
+identical trainings de-duplicated. This module selects nothing and writes no
+selection file: the fingerprints of the selection files are checked before and after.
 
-Commande : OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m src.experiments.final_evaluation_2d
+Command: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m src.experiments.final_evaluation_2d
 """
 
 import argparse
@@ -19,10 +19,10 @@ from pathlib import Path
 
 import numpy as np
 
-from src.data.generator_2d import genere_base_test_2d
+from src.data.generator_2d import generate_test_set_2d
 from src.experiments.runner_2d_nominal import (
     METRICS, NOMINAL_STORE, STOP_CAUSES, TABLES_DIR, StoreError, canonical, check_threads,
-    config_from_dict, config_label, data_fingerprint, environment_identity, load_official_data,
+    config_from_dict, config_label, data_fingerprint, environment_identity, load_input_data,
     load_record, run_strict, sha256_file, sha256_text, summary_stats, weights_sha256,
     write_csv, write_json,
 )
@@ -33,12 +33,12 @@ from src.utils.logger import environment_info, get_logger, log_event
 from src.utils.metrics import getMSE, max_abs_error, r2_score, rmse
 
 EVALUATION_FILE = "mlp_2d_final_evaluation.json"
-SELECTION_FILES = (SELECTION_FILE, HSTAR_FILE, "mlp_2d_adam_grid.csv")  # surveilles avant / apres
-_logger = logging.getLogger("c0_tp2_mlp.final_evaluation")
+SELECTION_FILES = (SELECTION_FILE, HSTAR_FILE, "mlp_2d_adam_grid.csv")  # monitored before / after
+_logger = logging.getLogger("polynomial_mlp.final_evaluation")
 
 
 class SelectionError(RuntimeError):
-    """Gel absent, altere ou different du recalcul."""
+    """Freeze missing, altered or different from the recomputation."""
 
 
 def selection_fingerprints(tables_dir) -> dict:
@@ -47,40 +47,40 @@ def selection_fingerprints(tables_dir) -> dict:
 
 
 def load_frozen_selection(selection_path, store, train, validation, overrides=None) -> dict:
-    """Verifie le gel (hash interne, enregistrements cites) et le recalcule sans test."""
+    """Check the freeze (internal hash, cited records) and recompute it without the test set."""
     path = Path(selection_path)
     if not path.exists():
-        raise SelectionError(f"gel de selection absent : {path}")
+        raise SelectionError(f"selection freeze missing: {path}")
     try:
         frozen = json.loads(path.read_text(encoding="utf-8"))
     except ValueError as exc:
-        raise SelectionError(f"gel illisible : {exc}") from exc
+        raise SelectionError(f"unreadable freeze: {exc}") from exc
     if frozen.get("schema") != SELECTION_SCHEMA or "payload_sha256" not in frozen:
-        raise SelectionError("gel : schema invalide")
+        raise SelectionError("freeze: invalid schema")
     body = {k: v for k, v in frozen.items() if k != "payload_sha256"}
     if sha256_text(canonical(body)) != frozen["payload_sha256"]:
-        raise SelectionError("gel altere : payload_sha256 invalide")
+        raise SelectionError("freeze altered: invalid payload_sha256")
     xt, yt = train
     xv, yv = validation
     fingerprint = data_fingerprint(xt, yt, xv, yv)
     environment = environment_identity(check_threads())
     if frozen["data"] != fingerprint or frozen["environment"] != environment:
-        raise SelectionError("gel produit avec d'autres donnees ou un autre environnement")
+        raise SelectionError("freeze produced with other data or another environment")
     for item in frozen["records"]:
         try:
             record = load_record(Path(store) / f"{item['run_key']}.json")
         except StoreError as exc:
-            raise SelectionError(f"enregistrement cite invalide : {exc}") from exc
+            raise SelectionError(f"invalid cited record: {exc}") from exc
         if record["payload_sha256"] != item["payload_sha256"]:
-            raise SelectionError(f"enregistrement modifie depuis le gel : {item['run_key']}")
+            raise SelectionError(f"record modified since the freeze: {item['run_key']}")
     recomputed, _ = compute_selection(store, fingerprint, environment, overrides)
     if selection_body(recomputed) != selection_body(frozen):
-        raise SelectionError("la selection recalculee depuis la validation differe du gel")
+        raise SelectionError("the selection recomputed from validation differs from the freeze")
     return frozen
 
 
 def rebuild_verified_model(record, train, validation, logger=None):
-    """Reentraine le run enregistre et exige la meme empreinte de poids (I9)."""
+    """Retrain the recorded run and require the same weight fingerprint."""
     config = config_from_dict(record["identity"]["config"])
     seed = record["identity"]["seed"]
     result = run_strict(config, seed, *train, *validation, logger=logger)
@@ -89,7 +89,7 @@ def rebuild_verified_model(record, train, validation, logger=None):
               weights_sha256=got, expected=record["weights_sha256"],
               match=got == record["weights_sha256"])
     if got != record["weights_sha256"]:
-        raise SelectionError(f"empreinte des poids divergente : {record['run_key']}")
+        raise SelectionError(f"weight fingerprint mismatch: {record['run_key']}")
     return result
 
 
@@ -99,7 +99,7 @@ def _metrics(y, prediction):
 
 
 def _targets_by_config(frozen):
-    """{config_id: ([roles], [cibles])} pour le perimetre D7-05, doublons de config fusionnes."""
+    """{config_id: ([roles], [targets])} for the evaluation scope, duplicate configurations merged."""
     out = {}
     for t in frozen["retrain_targets"]:
         roles, targets = out.setdefault(t["config_id"], ([], []))
@@ -112,7 +112,7 @@ def _targets_by_config(frozen):
 
 def evaluate_final(selection_path, store, train, validation, load_test, *, tables_dir,
                    logger=None, overrides=None) -> dict:
-    """Verifie le gel, reentraine, puis seulement evalue sur le test (un seul chargement)."""
+    """Check the freeze, retrain, and only then evaluate on the test set (a single load)."""
     tables_dir = Path(tables_dir)
     selection_path = Path(selection_path)
     before = selection_fingerprints(tables_dir)
@@ -122,7 +122,7 @@ def evaluate_final(selection_path, store, train, validation, load_test, *, table
     if out_path.exists():
         previous = json.loads(out_path.read_text(encoding="utf-8"))
         if previous.get("selection_sha256") != selection_sha:
-            raise SelectionError("le gel a change apres l'evaluation finale : relance refusee")
+            raise SelectionError("the freeze changed after the final evaluation: rerun refused")
     records = {}
     for item in frozen["records"]:
         records[item["run_key"]] = load_record(Path(store) / f"{item['run_key']}.json")
@@ -132,7 +132,7 @@ def evaluate_final(selection_path, store, train, validation, load_test, *, table
         for t in targets:
             models[t["run_key"]] = rebuild_verified_model(records[t["run_key"]], train,
                                                           validation, logger)
-    x_test, y_test = load_test()  # premier et unique acces au test
+    x_test, y_test = load_test()  # first and only access to the test set
     test_fp = data_fingerprint(x_test, y_test, x_test, y_test)["train_sha256"]
     figure = frozen["final"]["figure_network"]
     run_rows, stat_rows, comparison, per_config = [], [], [], {}
@@ -173,7 +173,7 @@ def evaluate_final(selection_path, store, train, validation, load_test, *, table
               comparison)
     after = selection_fingerprints(tables_dir)
     if before != after:
-        raise SelectionError("les fichiers de selection ont change pendant l'evaluation")
+        raise SelectionError("the selection files changed during the evaluation")
     figure_test = None
     if figure["run_key"] in models:
         figure_test = _metrics(y_test, models[figure["run_key"]].predict(x_test))
@@ -181,27 +181,27 @@ def evaluate_final(selection_path, store, train, validation, load_test, *, table
                   "test_sha256": test_fp, "n_test": int(len(y_test)),
                   "selection_files_sha256": after, "configs": per_config,
                   "figure_network": {**figure, "test_metrics": figure_test,
-                                     "note": "un cas parmi 10, non representatif de la configuration"},
-                  "scope": "configuration finale, lbfgs H*, meilleur adam (D7-05) ; 10 graines chacune",
+                                     "note": "one case out of 10, not representative of the configuration"},
+                  "scope": "final configuration, lbfgs H*, best adam; 10 seeds each",
                   "environment": environment_info()}
     write_json(out_path, evaluation)
     return evaluation
 
 
 def figure_inputs(selection_path=None, store=NOMINAL_STORE, train=None, validation=None,
-                  load_test=genere_base_test_2d, tables_dir=TABLES_DIR, logger=None,
+                  load_test=generate_test_set_2d, tables_dir=TABLES_DIR, logger=None,
                   overrides=None) -> dict:
-    """Modeles verifies et jeux de donnees pour les figures ; exige l'evaluation finale faite."""
+    """Verified models and data sets for the figures; requires the final evaluation to be done."""
     tables_dir = Path(tables_dir)
     selection_path = Path(selection_path or tables_dir / SELECTION_FILE)
     if train is None or validation is None:
-        xt, yt, xv, yv = load_official_data()
+        xt, yt, xv, yv = load_input_data()
         train, validation = (xt, yt), (xv, yv)
     frozen = load_frozen_selection(selection_path, store, train, validation, overrides)
     evaluation_path = tables_dir / EVALUATION_FILE
     if not evaluation_path.exists() or json.loads(evaluation_path.read_text(encoding="utf-8")
                                                   )["selection_sha256"] != sha256_file(selection_path):
-        raise SelectionError("evaluation finale absente ou associee a un autre gel")
+        raise SelectionError("final evaluation missing or associated with another freeze")
     def model(item):
         return rebuild_verified_model(load_record(Path(store) / f"{item['run_key']}.json"),
                                       train, validation, logger)
@@ -220,12 +220,12 @@ def main(argv=None) -> int:
     parser.add_argument("--log-file", type=Path, default=None)
     args = parser.parse_args(argv)
     check_threads()
-    xt, yt, xv, yv = load_official_data()
-    lg = get_logger("c0_tp2_mlp", log_file=args.log_file)
+    xt, yt, xv, yv = load_input_data()
+    lg = get_logger("polynomial_mlp", log_file=args.log_file)
     log_event(lg, "final_evaluation_start", **environment_info())
     try:
         result = evaluate_final(args.tables_dir / SELECTION_FILE, args.store, (xt, yt), (xv, yv),
-                                genere_base_test_2d, tables_dir=args.tables_dir, logger=lg)
+                                generate_test_set_2d, tables_dir=args.tables_dir, logger=lg)
     except Exception:
         log_event(lg, "final_evaluation_failed", level=logging.ERROR, exc_info=True)
         raise
@@ -234,7 +234,7 @@ def main(argv=None) -> int:
             lg.removeHandler(handler)
             handler.close()
     for cid, c in result["configs"].items():
-        print(c["label"], c["roles"], "EQMT moyenne =", c["test"]["mse"]["mean"])
+        print(c["label"], c["roles"], "mean test MSE =", c["test"]["mse"]["mean"])
     return 0
 
 

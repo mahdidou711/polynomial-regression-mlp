@@ -1,4 +1,4 @@
-"""Modeles (etape 2 : regression polynomiale 1D)."""
+"""Models: 1D polynomial regression and 2D MLP."""
 
 from .polynomial import (
     AUTO,

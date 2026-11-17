@@ -1,4 +1,4 @@
-"""Etape 7, lot A : grilles, parametres DEC-18 / DEC-19, cache, reprise, statistiques, exports."""
+"""Stage A: grids, parameters, cache, resume, statistics, exports."""
 import ast
 import csv
 import json
@@ -29,8 +29,8 @@ def data():
     return xt, yt, xv, yv
 
 
-# ---------------------------------------------------------------- grilles et decompte
-def test_constantes_contractuelles():
+# ---------------------------------------------------------------- grids and counts
+def test_fixed_constants():
     assert nom.WIDTHS == (5, 10, 20, 50, 100, 200)
     assert nom.TOPOLOGIES == ((20, 10), (50, 25))
     assert nom.ALPHAS == (1e-5, 1e-3, 1e-1)
@@ -41,7 +41,7 @@ def test_constantes_contractuelles():
 
 
 @pytest.mark.parametrize("h_star", nom.WIDTHS)
-def test_decompte_210_et_190_ou_160(h_star):
+def test_counts_210_and_190_or_160(h_star):
     plan = par.full_plan(h_star)
     count = par.count_plan(plan)
     assert (count["roles"], count["realisations"]) == (21, 210)
@@ -50,13 +50,13 @@ def test_decompte_210_et_190_ou_160(h_star):
     assert count["distinct_configs"] == expected // 10
     ids = {(e.campaign, e.role): nom.config_id(e.config) for e in plan}
     assert ids[("ACT", "tanh")] == ids[("SOLV", "lbfgs")] == ids[("NOM", f"H{h_star}")]
-    if h_star == 100:  # roles conserves, configurations partagees
+    if h_star == 100:  # roles kept, configurations shared
         for a in nom.ALPHAS:
             assert ids[("REG", f"H_star:alpha={a:g}")] == ids[("REG", f"H100:alpha={a:g}")]
         assert sum(e.campaign == "REG" for e in plan) == 6
 
 
-def test_repartition_des_roles():
+def test_distribution_of_roles():
     plan = par.full_plan(20)
     counts = {}
     for e in plan:
@@ -66,15 +66,15 @@ def test_repartition_des_roles():
         [nom.config_id(nom.nominal_config((h,))) for h in nom.WIDTHS]
 
 
-# ---------------------------------------------------------------- parametres DEC-18 / DEC-19
-def test_parametres_effectifs_de_chaque_configuration(monkeypatch, data):
-    """get_params() capture a l'entree de fit : tous les parametres contractuels."""
+# ---------------------------------------------------------------- parameters
+def test_effective_parameters_of_each_configuration(monkeypatch, data):
+    """get_params() captured at the entry of fit: all the contractual parameters."""
     captured = []
     original = MLPRegressor.fit
 
     def spy(self, X, y):
         captured.append(self.get_params())
-        self.set_params(max_iter=1, max_fun=10)  # un run d'une iteration
+        self.set_params(max_iter=1, max_fun=10)  # a one-iteration run
         return original(self, X, y)
 
     monkeypatch.setattr(mlp.MLPRegressor, "fit", spy)
@@ -93,7 +93,7 @@ def test_parametres_effectifs_de_chaque_configuration(monkeypatch, data):
         if c.solver == "lbfgs":
             assert (p["solver"], p["max_iter"], p["max_fun"], p["tol"]) == ("lbfgs", 10000, 100000, 1e-6)
             assert p["alpha"] in (1e-4, *nom.ALPHAS)
-        else:  # DEC-19 complet, n_iter_no_change=200 et non 10
+        else:  # complete adam protocol, n_iter_no_change=200 and not 10
             assert (p["solver"], p["max_iter"], p["tol"], p["n_iter_no_change"], p["alpha"],
                     p["activation"]) == ("adam", 5000, 1e-8, 200, 1e-4, "tanh")
             assert (p["learning_rate_init"], p["batch_size"]) in nom.ADAM_GRID
@@ -106,12 +106,12 @@ def test_parametres_effectifs_de_chaque_configuration(monkeypatch, data):
     assert all(p["alpha"] == 1e-4 for p in nominal)
 
 
-def test_configurations_contractuelles_toutes_distinctes():
+def test_all_contractual_configurations_are_distinct():
     assert len(nom.contractual_config_ids()) == 56  # 6 x 9 + 2 topologies
 
 
-# ---------------------------------------------------------------- identite et cles
-def test_cle_depend_de_chaque_composante(data):
+# ---------------------------------------------------------------- identity and keys
+def test_key_depends_on_each_component(data):
     fp = nom.data_fingerprint(*data)
     env = nom.environment_identity(1)
     cfg = MLPConfig((3,), **FAST)
@@ -125,9 +125,9 @@ def test_cle_depend_de_chaque_composante(data):
     assert base != nom.run_key(nom.run_identity(cfg, 42, fp, {**env, "engine_sha256": "0" * 64}))
 
 
-def test_threads_refuses_au_dela_d_un(monkeypatch):
+def test_threads_refused_beyond_one(monkeypatch):
     monkeypatch.setattr(nom, "threadpool_info", lambda: [{"num_threads": 4, "internal_api": "openblas"}])
-    with pytest.raises(RuntimeError, match="un seul thread"):
+    with pytest.raises(RuntimeError, match="a single BLAS/OpenMP thread"):
         nom.check_threads()
     monkeypatch.setattr(nom, "threadpool_info", lambda: [{"num_threads": 1, "internal_api": "openblas"},
                                                          {"num_threads": 1, "internal_api": "openmp"}])
@@ -135,7 +135,7 @@ def test_threads_refuses_au_dela_d_un(monkeypatch):
 
 
 # ---------------------------------------------------------------- cache, reprise
-def test_reprise_apres_interruption_sans_doublon(tmp_path, monkeypatch, data):
+def test_resume_after_interruption_without_duplicate(tmp_path, monkeypatch, data):
     store = tmp_path / "s"
     reference = nom.ensure_runs(small_plan(), *data, tmp_path / "ref")
     calls = []
@@ -144,7 +144,7 @@ def test_reprise_apres_interruption_sans_doublon(tmp_path, monkeypatch, data):
     def flaky(*a, **k):
         calls.append(a[1])
         if len(calls) == 3:
-            raise RuntimeError("interruption simulee")
+            raise RuntimeError("simulated interruption")
         return original(*a, **k)
 
     monkeypatch.setattr(nom, "train_mlp", flaky)
@@ -156,19 +156,19 @@ def test_reprise_apres_interruption_sans_doublon(tmp_path, monkeypatch, data):
     calls.clear()
     monkeypatch.setattr(nom, "train_mlp", lambda *a, **k: (calls.append(a[1]), original(*a, **k))[1])
     out = nom.ensure_runs(small_plan(), *data, store)
-    assert calls == [3, 4]  # seuls les runs manquants sont recalcules
-    assert not list(store.glob("*.failed.json"))  # echec resolu par la reprise
+    assert calls == [3, 4]  # only the missing runs are recomputed
+    assert not list(store.glob("*.failed.json"))  # failure resolved by the resume
     assert out.keys() == reference.keys()
     for k in out:
         assert out[k]["weights_sha256"] == reference[k]["weights_sha256"]
         assert out[k]["validation_metrics"] == reference[k]["validation_metrics"]
-    # relance complete : aucun entrainement
+    # complete rerun: no training
     calls.clear()
     nom.ensure_runs(small_plan(), *data, store)
     assert calls == []
 
 
-def test_run_partage_entre_roles_entraine_une_fois(tmp_path, monkeypatch, data):
+def test_run_shared_between_roles_is_trained_once(tmp_path, monkeypatch, data):
     plan = small_plan((1, 2)) + [nom.PlanEntry("U", "b", MLPConfig((3,), **FAST), (1, 2))]
     calls = []
     original = nom.train_mlp
@@ -177,53 +177,53 @@ def test_run_partage_entre_roles_entraine_une_fois(tmp_path, monkeypatch, data):
     assert len(calls) == 2 and len(out) == 2
 
 
-def test_tmp_residuel_ignore_et_note(tmp_path, data):
+def test_leftover_tmp_ignored_and_noted(tmp_path, data):
     plan = small_plan((1,))
     keys = nom.plan_keys(plan, nom.data_fingerprint(*data), nom.environment_identity(1))
-    (tmp_path / f"{keys[0]}.json.tmp").write_text("{incomplet", encoding="utf-8")
+    (tmp_path / f"{keys[0]}.json.tmp").write_text("{incomplete", encoding="utf-8")
     nom.ensure_runs(plan, *data, tmp_path)
     assert (tmp_path / f"{keys[0]}.json").exists()
     report = nom.verify_store(tmp_path, keys, set(keys))
     assert report["ok"] and report["n_records"] == 1
 
 
-def test_enregistrements_invalides_refuses_sans_ecrasement(tmp_path, data):
+def test_invalid_records_refused_without_overwriting(tmp_path, data):
     plan = small_plan((1,))
     nom.ensure_runs(plan, *data, tmp_path)
     path = next(tmp_path.glob("*.json"))
     good = path.read_text(encoding="utf-8")
     rec = json.loads(good)
     cases = {
-        "metrique alteree": {**rec, "validation_metrics": {**rec["validation_metrics"], "mse": 9.9}},
-        "champ de test (I7)": {**rec, "test_metrics": {"mse": 0.0}},
-        "cle incoherente": {**rec, "run_key": "0" * 64},
+        "altered metric": {**rec, "validation_metrics": {**rec["validation_metrics"], "mse": 9.9}},
+        "test field": {**rec, "test_metrics": {"mse": 0.0}},
+        "inconsistent key": {**rec, "run_key": "0" * 64},
     }
     for name, bad in cases.items():
         path.write_text(json.dumps(bad), encoding="utf-8")
         with pytest.raises(nom.StoreError):
             nom.ensure_runs(plan, *data, tmp_path)
-        assert json.loads(path.read_text(encoding="utf-8")) == bad, name  # jamais ecrase
-    path.write_text("{pas du json", encoding="utf-8")
+        assert json.loads(path.read_text(encoding="utf-8")) == bad, name  # never overwritten
+    path.write_text("{not a json", encoding="utf-8")
     with pytest.raises(nom.StoreError):
         nom.ensure_runs(plan, *data, tmp_path)
     renamed = tmp_path / ("1" * 64 + ".json")
     renamed.write_text(good, encoding="utf-8")
-    with pytest.raises(nom.StoreError, match="cle incoherente"):
+    with pytest.raises(nom.StoreError, match="key inconsistent"):
         nom.load_record(renamed)
 
 
 def test_depot_nominal_refuse_budget_court(tmp_path, data):
     before = sorted(nom.NOMINAL_STORE.iterdir()) if nom.NOMINAL_STORE.exists() else None
-    with pytest.raises(ValueError, match="non contractuelles"):
+    with pytest.raises(ValueError, match="non-contractual"):
         nom.ensure_runs(small_plan(), *data, nom.NOMINAL_STORE)
-    with pytest.raises(ValueError, match="non contractuelles"):  # graines non contractuelles
+    with pytest.raises(ValueError, match="non-contractual"):  # non-contractual seeds
         nom.ensure_runs([nom.PlanEntry("T", "a", nom.nominal_config((5,)), (1, 2))], *data,
                         nom.NOMINAL_STORE)
     after = sorted(nom.NOMINAL_STORE.iterdir()) if nom.NOMINAL_STORE.exists() else None
     assert before == after
 
 
-def test_interruption_clavier_absorbee_par_sklearn_n_est_pas_publiee(tmp_path, monkeypatch, data):
+def test_keyboard_interrupt_swallowed_by_sklearn_is_not_published(tmp_path, monkeypatch, data):
     original = MLPRegressor.fit
 
     def fit(self, X, y):
@@ -238,21 +238,21 @@ def test_interruption_clavier_absorbee_par_sklearn_n_est_pas_publiee(tmp_path, m
     assert len(list(tmp_path.glob("*.failed.json"))) == 1
 
 
-def test_verify_store_detecte_etranger_manquant_et_echec(tmp_path, data):
+def test_verify_store_detects_foreign_missing_and_failure(tmp_path, data):
     plan = small_plan((1, 2))
     fp, env = nom.data_fingerprint(*data), nom.environment_identity(1)
     keys = nom.plan_keys(plan, fp, env)
     nom.ensure_runs(plan, *data, tmp_path)
     assert nom.verify_store(tmp_path, keys, set(keys))["ok"]
-    assert nom.verify_store(tmp_path, keys, {keys[0]})["anomalies"]  # I4 : etranger
+    assert nom.verify_store(tmp_path, keys, {keys[0]})["anomalies"]  # foreign file
     assert nom.verify_store(tmp_path, [*keys, "x" * 64], set(keys))["missing"] == ["x" * 64]
-    (tmp_path / "bruit.txt").write_text("x")
+    (tmp_path / "noise.txt").write_text("x")
     assert not nom.verify_store(tmp_path, keys, set(keys))["ok"]
     assert not nom.verify_store(tmp_path / "absent")["ok"]
 
 
-# ---------------------------------------------------------------- statistiques
-def test_statistiques_identiques_a_run_multi_seed_et_oracle(tmp_path, data):
+# ---------------------------------------------------------------- statistics
+def test_statistics_identical_to_run_multi_seed_and_oracle(tmp_path, data):
     seeds = SEEDS_MONTE_CARLO
     cfg = MLPConfig((3,), **FAST)
     out = nom.ensure_runs([nom.PlanEntry("T", "a", cfg, seeds)], *data, tmp_path)
@@ -265,14 +265,14 @@ def test_statistiques_identiques_a_run_multi_seed_et_oracle(tmp_path, data):
                 assert stats[split][m][s] == v
     values = np.array([r["validation_metrics"]["mse"] for r in records])
     assert stats["validation"]["mse"]["std"] == pytest.approx(np.std(values, ddof=1), rel=1e-15)
-    assert stats["n_warnings"] == ref.warning_count  # runs avertis conserves
+    assert stats["n_warnings"] == ref.warning_count  # runs with warnings kept
     assert sum(stats["stop_causes"].values()) == 10
 
 
-def test_describe_refuse_effectif_incomplet(tmp_path, data):
+def test_describe_refuses_incomplete_sample(tmp_path, data):
     out = nom.ensure_runs(small_plan(), *data, tmp_path)
-    with pytest.raises(ValueError, match="I6"):
-        nom.describe(list(out.values()))  # 4 runs au lieu de 10
+    with pytest.raises(ValueError, match="runs instead of"):
+        nom.describe(list(out.values()))  # 4 runs instead of 10
     assert nom.describe(list(out.values()), expected_runs=4)["n_runs"] == 4
 
 
@@ -283,14 +283,14 @@ def test_describe_refuse_effectif_incomplet(tmp_path, data):
     ("lbfgs", ["lbfgs failed to converge after 5 iteration(s) (status=1):\nSTOP: TOTAL NO. OF F,G EVALUATIONS EXCEEDS LIMIT\n"], "max_fun"),
     ("lbfgs", ["lbfgs failed to converge (status=2):\nABNORMAL: \n"], "other_warning"),
     ("adam", ["Stochastic Optimizer: Maximum iterations (5000) reached and the optimization hasn't converged yet."], "max_iter"),
-    ("adam", ["autre message"], "other_warning"),
+    ("adam", ["other message"], "other_warning"),
 ])
 def test_stop_cause(solver, warnings_, expected):
     assert nom.stop_cause({"convergence_warnings": warnings_}, solver) == expected
 
 
-def test_stop_cause_sur_messages_reels_de_scikit_learn(data):
-    """Un run lbfgs a 1 iteration puis un run a max_fun minimal : messages reels du moteur."""
+def test_stop_cause_on_actual_scikit_learn_messages(data):
+    """A one-iteration lbfgs run, then a run with minimal max_fun: actual engine messages."""
     r1 = nom.run_strict(MLPConfig((3,), max_iter=1, max_fun=1000), 42, *data)
     r2 = nom.run_strict(MLPConfig((3,), max_iter=1000, max_fun=3), 42, *data)
     assert nom.stop_cause(r1.diagnostics, "lbfgs") == "max_iter"
@@ -301,7 +301,7 @@ def test_stop_cause_sur_messages_reels_de_scikit_learn(data):
 
 
 # ---------------------------------------------------------------- exports
-def test_tables_deterministes_depuis_le_cache(tmp_path, data):
+def test_tables_deterministic_from_the_cache(tmp_path, data):
     store = tmp_path / "store"
     plan = nom.nominal_plan(FAST)
     fp, env = nom.data_fingerprint(*data), nom.environment_identity(1)
@@ -312,7 +312,7 @@ def test_tables_deterministes_depuis_le_cache(tmp_path, data):
         directory = tmp_path / f"t{run}"
         nom.write_run_tables(plan, collected, fp, env, directory)
         outputs.append({p.name: p.read_bytes() for p in directory.iterdir()})
-    assert outputs[0] == outputs[1]  # octet a octet
+    assert outputs[0] == outputs[1]  # byte for byte
     assert set(outputs[0]) == {"mlp_2d_plan.csv", "mlp_2d_runs.csv", "mlp_2d_config_stats.csv"}
     with open(tmp_path / "t0" / "mlp_2d_plan.csv", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
@@ -332,8 +332,8 @@ def test_json_strict_sans_nan(tmp_path):
     assert json.loads((tmp_path / "ok.json").read_text()) == {"a": 1.5}
 
 
-# ---------------------------------------------------------------- reproductibilite
-def test_poids_identiques_entre_deux_processus(tmp_path):
+# ---------------------------------------------------------------- reproducibility
+def test_weights_identical_between_two_processes(tmp_path):
     import subprocess
     import sys
     code = (
@@ -351,8 +351,8 @@ def test_poids_identiques_entre_deux_processus(tmp_path):
     assert out[0] == out[1] and len(out[0]) == 64
 
 
-# ---------------------------------------------------------------- etancheite statique
-FORBIDDEN = {"genere_base_test_2d", "prepare_data_2d", "DataSplits2D"}
+# ---------------------------------------------------------------- static watertightness
+FORBIDDEN = {"generate_test_set_2d", "prepare_data_2d", "DataSplits2D"}
 
 
 def _names(path):
@@ -371,11 +371,11 @@ def _names(path):
 
 
 @pytest.mark.parametrize("module", [nom, par])
-def test_runners_ne_referencent_pas_le_test(module):
+def test_runners_do_not_reference_the_test_set(module):
     assert not FORBIDDEN & _names(module.__file__)
 
 
-def test_hidden_layer_sizes_toujours_par_mot_cle():
+def test_hidden_layer_sizes_always_passed_by_keyword():
     for module in (nom, par, mlp):
         tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
         for node in ast.walk(tree):

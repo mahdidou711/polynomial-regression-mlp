@@ -1,14 +1,14 @@
-"""Tests de src/models/polynomial.py (etape 2).
+"""Tests of src/models/polynomial.py.
 
-Couvre : construction exacte de Vandermonde, terme constant unique, coefficients de
-polynomes connus, predictions et residus, concordance OLS / QR / SVD / scikit-learn selon
-le regime de conditionnement (ARB-08, avenant 7.10), mauvais conditionnement (grille
-nominale, AE1-07), systemes carres, sous-determines et singuliers, robustesse des erreurs.
+Covers: exact Vandermonde construction, single constant term, coefficients of known
+polynomials, predictions and residuals, OLS / QR / SVD / scikit-learn agreement according to
+the conditioning regime, ill-conditioning (nominal grid), square, underdetermined and
+singular systems, robustness of the error handling.
 
-Les seuils de regime sont calcules sur les matrices effectivement construites (jamais
-supposes a partir du seul degre). Les bornes d'erreur sont de la forme C * kappa * eps
-avec kappa = kappa_2(H) (QR, SVD) ou kappa(H^T H) (equations normales).
-Commande : python -m pytest tests/test_polynomial_solvers.py -v
+The regime thresholds are computed on the matrices actually built (never
+assumed from the degree alone). The error bounds have the form C * kappa * eps
+with kappa = kappa_2(H) (QR, SVD) or kappa(H^T H) (normal equations).
+Command: python -m pytest tests/test_polynomial_solvers.py -v
 """
 
 import logging
@@ -22,7 +22,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
 import src.models as models
-from src.data import genere_base_apprentissage, genere_base_test
+from src.data import generate_training_set, generate_test_set
 from src.models import polynomial
 from src.models.polynomial import (
     EPS_0,
@@ -45,26 +45,26 @@ from src.utils.metrics import KAPPA_HTH_ALERT, condition_numbers, getMSE
 from src.utils.seeding import SEEDS_STAT_1D
 
 EPS = np.finfo(np.float64).eps
-NB_EX_GRID = (10, 15, 20, 50, 100, 200)  # ARB-01
+N_SAMPLES_GRID = (10, 15, 20, 50, 100, 200)
 DEGREES = tuple(range(1, 13))
 SEEDS = SEEDS_STAT_1D[:5]
-LOGGER_METRICS = "c0_tp2_mlp.metrics"
-LOGGER_POLY = "c0_tp2_mlp.polynomial"
+LOGGER_METRICS = "polynomial_mlp.metrics"
+LOGGER_POLY = "polynomial_mlp.polynomial"
 ALL_SOLVERS = [solve_normal_equations, solve_qr, solve_svd, solve_sklearn_reference]
 
 
 def nominal_grid():
-    """Abscisses d'apprentissage nominales : 20 points sur [0 ; 1,2[ (borne exclue)."""
+    """Nominal training abscissas: 20 points on [0; 1.2) (bound excluded)."""
     return np.linspace(0.0, 1.2, 20, endpoint=False)
 
 
 def true_coefficients(degree):
-    """Coefficients de reference d'amplitude O(1), de signes alternes."""
+    """Reference coefficients of amplitude O(1), with alternating signs."""
     return np.array([(-1.0) ** j * (1.0 + 0.5 * j) for j in range(degree + 1)])
 
 
 # --------------------------------------------------------------------------
-# Construction de Vandermonde
+# Vandermonde construction
 # --------------------------------------------------------------------------
 class TestVandermonde:
     def test_entries_are_x_to_the_power_j(self):
@@ -96,7 +96,7 @@ class TestVandermonde:
         np.testing.assert_allclose(vandermonde(x, 12), expected, rtol=1e-13)
 
     def test_square_determinant_is_product_of_differences(self):
-        # det V = prod_{i<j} (x_j - x_i) pour la matrice de Vandermonde carree.
+        # det V = prod_{i<j} (x_j - x_i) for the square Vandermonde matrix.
         x = np.array([0.0, 0.5, 1.0, 2.0])
         expected = np.prod([x[j] - x[i] for i in range(4) for j in range(i + 1, 4)])
         assert np.linalg.det(vandermonde(x, 3)) == pytest.approx(expected, rel=1e-12)
@@ -106,7 +106,7 @@ class TestVandermonde:
         assert np.array_equal(vandermonde(x.reshape(-1, 1), 5), vandermonde(x, 5))
 
     def test_accepts_generator_output_shape(self):
-        x, _ = genere_base_apprentissage()
+        x, _ = generate_training_set()
         assert x.shape == (20, 1)
         assert vandermonde(x, 5).shape == (20, 6)
 
@@ -124,7 +124,7 @@ class TestVandermonde:
     @pytest.mark.parametrize(
         "bad, exc",
         [
-            (np.ones((3, 2)), ValueError),  # deux colonnes
+            (np.ones((3, 2)), ValueError),  # two columns
             (np.ones((2, 2, 2)), ValueError),
             (np.array(1.0), ValueError),  # 0-D
             (np.array([]), ValueError),
@@ -149,12 +149,12 @@ class TestVandermonde:
         assert vandermonde(np.ones(3), np.int64(2)).shape == (3, 3)
 
     def test_floating_point_overflow_is_reported(self):
-        with pytest.raises(ValueError, match="depassement"):
+        with pytest.raises(ValueError, match="overflow"):
             vandermonde(np.array([1e200]), 3)
 
 
 # --------------------------------------------------------------------------
-# Terme constant : colonne de biais unique (EXG-PROG-B1-03)
+# Constant term: single bias column
 # --------------------------------------------------------------------------
 class TestSingleBias:
     def test_reference_is_instantiated_with_fit_intercept_false(self):
@@ -172,8 +172,8 @@ class TestSingleBias:
         np.testing.assert_allclose(coef, true_coefficients(4), rtol=1e-8)
 
     def test_a_fitted_intercept_would_change_beta0(self):
-        # Contre-test : avec fit_intercept=True, la colonne de uns de H est centree a zero
-        # et beta_0 est perdu (double biais). Le test echoue donc si le drapeau est oublie.
+        # Counter-test: with fit_intercept=True, the column of ones of H is centred to zero
+        # and beta_0 is lost (double bias). The test therefore fails if the flag is forgotten.
         h = vandermonde(nominal_grid(), 3)
         y = h @ true_coefficients(3)
         wrong = LinearRegression(fit_intercept=True).fit(h, y).coef_
@@ -187,21 +187,21 @@ class TestSingleBias:
             np.testing.assert_allclose(coef, [3.5, 0.0, 0.0, 0.0], atol=1e-9)
 
     def test_residuals_sum_to_zero_because_the_model_contains_a_constant(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         fit = fit_polynomial(x, y, 3, "svd")
         assert abs(residuals(fit.coef, x, y).sum()) < 1e-12
 
 
 # --------------------------------------------------------------------------
-# Coefficients de polynomes connus
+# Coefficients of known polynomials
 # --------------------------------------------------------------------------
 def solver_error_bound(method, kappa_h, kappa_hth, c=50.0):
-    """Borne relative c * kappa * eps (kappa(H^T H) pour les equations normales)."""
+    """Relative bound c * kappa * eps (kappa(H^T H) for the normal equations)."""
     return c * (kappa_hth if method == "normal" else kappa_h) * EPS
 
 
-# Couples (methode, degre) dont la borne 50 * kappa * eps reste < 1e-2 sur la grille nominale :
-# QR et SVD jusqu'a d = 12 ; equations normales jusqu'a d = 8 (kappa(H^T H) <= 1,9e11).
+# (method, degree) pairs whose bound 50 * kappa * eps stays < 1e-2 on the nominal grid:
+# QR and SVD up to d = 12; normal equations up to d = 8 (kappa(H^T H) <= 1.9e11).
 RECOVERY_CASES = [("qr", d) for d in DEGREES] + [("svd", d) for d in DEGREES] + [
     ("normal", d) for d in range(1, 9)
 ]
@@ -215,7 +215,7 @@ class TestKnownPolynomials:
         y = vandermonde(x, degree) @ beta
         cond = condition_numbers(vandermonde(x, degree))
         bound = solver_error_bound(method, cond.kappa_h, cond.kappa_hth)
-        assert bound < 1e-2  # le couple est bien dans le domaine exploitable
+        assert bound < 1e-2  # the pair is indeed in the usable domain
         fit = fit_polynomial(x, y, degree, method)
         assert relative_error_inf(fit.coef, beta) <= bound
 
@@ -248,7 +248,7 @@ class TestKnownPolynomials:
 
 
 # --------------------------------------------------------------------------
-# Predictions et residus
+# Predictions and residuals
 # --------------------------------------------------------------------------
 class TestPredictionsAndResiduals:
     def test_predict_matches_polyval(self):
@@ -262,13 +262,13 @@ class TestPredictionsAndResiduals:
         assert predict(coef, np.zeros((4, 1))).shape == (4,)
 
     def test_predict_on_unseen_points_uses_the_fitted_polynomial(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         fit = fit_polynomial(x, y, 3)
-        x_test, _ = genere_base_test()
+        x_test, _ = generate_test_set()
         assert np.array_equal(fit.predict(x_test), predict(fit.coef, x_test))
 
     def test_residuals_are_y_minus_prediction(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         coef = fit_polynomial(x, y, 4).coef
         assert np.array_equal(residuals(coef, x, y), y - predict(coef, x))
 
@@ -280,13 +280,13 @@ class TestPredictionsAndResiduals:
 
     @pytest.mark.parametrize("method", ["qr", "svd"])
     def test_least_squares_residual_is_orthogonal_to_the_columns_of_h(self, method):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         h = vandermonde(x, 3)
         r = residuals(fit_polynomial(x, y, 3, method).coef, x, y)
         assert np.max(np.abs(h.T @ r)) <= 1e-12 * np.linalg.norm(h) * np.linalg.norm(y)
 
     def test_least_squares_solution_minimizes_the_mse(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         coef = fit_polynomial(x, y, 3).coef
         base = getMSE(y, predict(coef, x))
         for j in range(4):
@@ -296,14 +296,14 @@ class TestPredictionsAndResiduals:
                 assert getMSE(y, predict(shifted, x)) > base
 
     def test_residual_mse_equals_getmse(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         coef = fit_polynomial(x, y, 5).coef
         mse = getMSE(y, predict(coef, x))
         assert np.mean(residuals(coef, x, y) ** 2) == pytest.approx(mse, rel=1e-12)
 
     def test_column_vector_target_is_rejected_not_broadcast(self):
-        x, y = genere_base_apprentissage()
-        with pytest.raises(AssertionError, match="divergentes"):
+        x, y = generate_training_set()
+        with pytest.raises(AssertionError, match="mismatching"):
             residuals([1.0, 1.0], x, y.reshape(-1, 1))
 
     @pytest.mark.parametrize("bad", [[], [np.nan, 1.0], np.ones((2, 2))])
@@ -313,20 +313,20 @@ class TestPredictionsAndResiduals:
 
 
 # --------------------------------------------------------------------------
-# Concordance OLS / QR / SVD / scikit-learn selon le regime (ARB-08)
+# OLS / QR / SVD / scikit-learn agreement according to the regime
 # --------------------------------------------------------------------------
 def comparisons():
-    """Toutes les comparaisons de la grille ARB-01 x degres 1..12 x 5 graines de bruit."""
-    for n in NB_EX_GRID:
+    """All the comparisons of the grid x degrees 1..12 x 5 noise seeds."""
+    for n in N_SAMPLES_GRID:
         for seed in SEEDS:
-            x, y = genere_base_apprentissage(n, 0.2, seed)
+            x, y = generate_training_set(n, 0.2, seed)
             for d in DEGREES:
                 yield n, seed, d, compare_solvers(x, y, d)
 
 
 @pytest.fixture(scope="module")
 def grid_comparisons():
-    logging.disable(logging.WARNING)  # evite 360 alertes de conditionnement sur stderr
+    logging.disable(logging.WARNING)  # avoids 360 conditioning alerts on stderr
     try:
         return list(comparisons())
     finally:
@@ -347,7 +347,7 @@ class TestAgreementAcrossRegimes:
         worst = max(
             c.rel_error_inf["normal"] for _, _, _, c in grid_comparisons if c.regime == "strict"
         )
-        assert worst < STRICT_RTOL / 100  # mesure : ~5e-10 au pire
+        assert worst < STRICT_RTOL / 100  # measured: ~5e-10 at worst
 
     def test_strict_regime_mixed_criterion_also_holds(self, grid_comparisons):
         for n, seed, d, c in grid_comparisons:
@@ -375,19 +375,19 @@ class TestAgreementAcrossRegimes:
         assert diagnostic
         for c in diagnostic:
             assert set(c.rel_error_inf) == {"normal", "qr", "sklearn"}
-            assert c.rel_error_inf["sklearn"] is not None  # SVD et reference toujours calculees
-            if c.rank == c.n_params:  # rang complet (donc N >= p) : les trois methodes tournent
+            assert c.rel_error_inf["sklearn"] is not None  # SVD and reference always computed
+            if c.rank == c.n_params:  # full rank (hence N >= p): the three methods run
                 assert c.rel_error_inf["normal"] is not None and c.rel_error_inf["qr"] is not None
-            else:  # N < p ou rang deficient : equations normales et QR qualifiees non applicables
+            else:  # N < p or rank deficient: normal equations and QR qualified as not applicable
                 assert set(c.errors) == {"normal", "qr"}
 
     def test_regime_is_determined_by_kappa_not_by_degree(self, grid_comparisons):
-        # Le regime suit kappa(H^T H) mesure sur la matrice construite, pas le seul degre.
+        # The regime follows the kappa(H^T H) measured on the built matrix, not the degree alone.
         for n, seed, d, c in grid_comparisons:
             is_strict = c.rank == c.n_params and c.kappa_hth <= KAPPA_HTH_ALERT
             assert c.regime == ("strict" if is_strict else "diagnostic"), (n, seed, d)
-        # Meme degre (5) et meme N (20), intervalle different : le regime change (mesures :
-        # kappa(H^T H) = 6,2e6 sur [0 ; 1,2[ et 5,3e8 sur [0 ; 0,6[).
+        # Same degree (5) and same N (20), different interval: the regime changes (measured:
+        # kappa(H^T H) = 6.2e6 on [0; 1.2) and 5.3e8 on [0; 0.6)).
         y = np.ones(20)
         wide = compare_solvers(np.linspace(0.0, 1.2, 20, endpoint=False), y, 5)
         narrow = compare_solvers(np.linspace(0.0, 0.6, 20, endpoint=False), y, 5)
@@ -395,10 +395,10 @@ class TestAgreementAcrossRegimes:
 
 
 class TestNominalGridRegimes:
-    """Seuils de l'etape 2 verifies sur la grille nominale effective (AE1-07)."""
+    """Thresholds checked on the effective nominal grid."""
 
     def setup_method(self):
-        self.x, self.y = genere_base_apprentissage()
+        self.x, self.y = generate_training_set()
         logging.disable(logging.WARNING)
 
     def teardown_method(self):
@@ -434,12 +434,12 @@ class TestNominalGridRegimes:
 
     @pytest.mark.parametrize("degree", [1, 2, 3])
     def test_explicit_normal_matrix_confirms_the_square_law_at_low_degree(self, degree):
-        # Verification a bas degre seulement : H^T H explicite est alors fiable.
+        # Check at low degree only: the explicit H^T H is then reliable.
         h = vandermonde(self.x, degree)
         assert np.linalg.cond(h.T @ h) == pytest.approx(np.linalg.cond(h) ** 2, rel=1e-6)
 
     def test_condition_number_depends_on_the_actual_abscissas(self):
-        # Grille a borne incluse (1,2 atteint) : kappa different de la grille nominale.
+        # Grid with included bound (1.2 reached): kappa differs from the nominal grid.
         closed = np.linspace(0.0, 1.2, 20, endpoint=True)
         k_open = condition_numbers(vandermonde(self.x, 5)).kappa_hth
         k_closed = condition_numbers(vandermonde(closed, 5)).kappa_hth
@@ -449,7 +449,7 @@ class TestNominalGridRegimes:
 
 class TestIllConditioningConsequences:
     def setup_method(self):
-        self.x, self.y = genere_base_apprentissage()
+        self.x, self.y = generate_training_set()
         logging.disable(logging.WARNING)
 
     def teardown_method(self):
@@ -479,7 +479,7 @@ class TestIllConditioningConsequences:
 
     def test_alert_is_logged_without_blocking(self, caplog):
         logging.disable(logging.NOTSET)
-        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp"):
+        with caplog.at_level(logging.INFO, logger="polynomial_mlp"):
             c = compare_solvers(self.x, self.y, 12)
         alerts = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(alerts) == 1 and alerts[0].getMessage() == "conditioning_alert"
@@ -499,7 +499,7 @@ class TestIllConditioningConsequences:
 
     def test_no_alert_in_the_strict_regime(self, caplog):
         logging.disable(logging.NOTSET)
-        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp"):
+        with caplog.at_level(logging.INFO, logger="polynomial_mlp"):
             compare_solvers(self.x, self.y, 3)
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
@@ -512,14 +512,14 @@ class TestIllConditioningConsequences:
 
 
 # --------------------------------------------------------------------------
-# Systemes carres, sous-determines et singuliers
+# Square, underdetermined and singular systems
 # --------------------------------------------------------------------------
 class TestUnderdetermined:
-    """NbEx = 10 avec d >= 10 : p = d + 1 > N (H^T H singuliere)."""
+    """n_samples = 10 with d >= 10: p = d + 1 > N (H^T H singular)."""
 
     def setup_method(self):
         logging.disable(logging.WARNING)
-        self.x, self.y = genere_base_apprentissage(10, 0.2, 42)
+        self.x, self.y = generate_training_set(10, 0.2, 42)
 
     def teardown_method(self):
         logging.disable(logging.NOTSET)
@@ -545,7 +545,7 @@ class TestUnderdetermined:
         h = vandermonde(self.x, degree)
         beta = solve_svd(h, self.y)
         assert beta.shape == (degree + 1,)
-        # (1) interpole les 10 points ; (2) norme minimale : beta orthogonal au noyau de H.
+        # (1) interpolates the 10 points; (2) minimum norm: beta orthogonal to the kernel of H.
         assert np.linalg.norm(h @ beta - self.y) <= 1e-6 * np.linalg.norm(self.y)
         _, s, vt = np.linalg.svd(h)
         null_basis = vt[10:]
@@ -571,12 +571,12 @@ class TestUnderdetermined:
         assert fit.coef.shape == (12,) and fit.rank == 10
 
     def test_auto_method_falls_back_to_svd_when_underdetermined(self):
-        fit = fit_polynomial(self.x, self.y, 11, "auto")  # N = 10 < p = 12 : pas d'exception
+        fit = fit_polynomial(self.x, self.y, 11, "auto")  # N = 10 < p = 12: no exception
         assert fit.method == "svd" and fit.rank == 10
         assert np.array_equal(fit.coef, fit_polynomial(self.x, self.y, 11, "svd").coef)
 
     def test_auto_method_uses_qr_when_full_column_rank(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         fit = fit_polynomial(x, y, 3, "auto")
         assert fit.method == "qr"
         assert np.array_equal(fit.coef, fit_polynomial(x, y, 3, "qr").coef)
@@ -594,7 +594,7 @@ class TestUnderdetermined:
         np.testing.assert_allclose(fit_polynomial([x0], [y0], 2).coef, y0 * v / (v @ v), rtol=1e-12)
 
     def test_boundary_case_n_equals_p_is_still_solved_by_all_methods(self):
-        x, y = genere_base_apprentissage(10, 0.2, 42)  # N = 10, d = 9 : p = N
+        x, y = generate_training_set(10, 0.2, 42)  # N = 10, d = 9 : p = N
         c = compare_solvers(x, y, 9)
         assert c.errors == {} and c.rank == 10
         np.testing.assert_allclose(predict(c.coefficients["svd"], x), y, atol=1e-6)
@@ -613,7 +613,7 @@ class TestRankDeficient:
         c = compare_solvers(x, y, 2)
         assert c.rank == 1 and c.regime == "diagnostic"
         assert set(c.errors) == {"normal", "qr"}
-        assert all("rang(H) = 1 < p = 3" in msg for msg in c.errors.values())
+        assert all("rank(H) = 1 < p = 3" in msg for msg in c.errors.values())
 
     def test_identical_abscissas_svd_matches_the_analytic_minimum_norm_solution(self):
         x = np.full(5, 0.3)
@@ -626,13 +626,13 @@ class TestRankDeficient:
 
     @pytest.mark.parametrize("degree", [2, 4, 6])
     def test_rank_equals_min_of_distinct_abscissas_and_p(self, degree):
-        x = np.array([0.0, 0.0, 1.0, 1.0, 2.0, 2.0])  # 3 abscisses distinctes
+        x = np.array([0.0, 0.0, 1.0, 1.0, 2.0, 2.0])  # 3 distinct abscissas
         assert compare_solvers(x, np.arange(6.0), degree).rank == min(3, degree + 1)
 
     def test_repeated_abscissas_are_fitted_through_the_group_means(self):
         x = np.array([0.0, 0.0, 1.0, 1.0, 2.0, 2.0])
-        y = np.array([1.0, 3.0, 4.0, 6.0, 0.0, 2.0])  # moyennes 2, 5, 1
-        coef = fit_polynomial(x, y, 4, "svd").coef  # p = 5 > 3 : noyau non trivial
+        y = np.array([1.0, 3.0, 4.0, 6.0, 0.0, 2.0])  # means 2, 5, 1
+        coef = fit_polynomial(x, y, 4, "svd").coef  # p = 5 > 3: non-trivial kernel
         at_nodes = predict(coef, np.array([0.0, 1.0, 2.0]))
         np.testing.assert_allclose(at_nodes, [2.0, 5.0, 1.0], atol=1e-9)
 
@@ -645,11 +645,11 @@ class TestRankDeficient:
     def test_direct_solvers_reject_a_rank_deficient_matrix(self):
         h = vandermonde(np.full(5, 0.3), 2)
         for solver in (solve_normal_equations, solve_qr):
-            with pytest.raises(RankDeficientError, match="rang"):
+            with pytest.raises(RankDeficientError, match="rank"):
                 solver(h, np.ones(5))
 
     def test_exactly_singular_matrix_does_not_crash_the_comparison(self):
-        h = np.array([[1.0, 2.0], [2.0, 4.0], [3.0, 6.0]])  # colonnes proportionnelles
+        h = np.array([[1.0, 2.0], [2.0, 4.0], [3.0, 6.0]])  # proportional columns
         y = np.array([1.0, 2.0, 3.0])
         for solver in (solve_normal_equations, solve_qr):
             with pytest.raises(RankDeficientError):
@@ -658,15 +658,15 @@ class TestRankDeficient:
 
 
 # --------------------------------------------------------------------------
-# Robustesse des traitements d'erreur
+# Robustness of the error handling
 # --------------------------------------------------------------------------
 class TestErrorHandling:
     @pytest.mark.parametrize("solver", ALL_SOLVERS)
     def test_target_shape_mismatch_is_rejected(self, solver):
         h = vandermonde(np.linspace(0, 1, 6), 2)
-        with pytest.raises(AssertionError, match="divergentes"):
-            solver(h, np.ones((6, 1)))  # (N, 1) contre (N,) : pas de broadcasting
-        with pytest.raises(AssertionError, match="divergentes"):
+        with pytest.raises(AssertionError, match="mismatching"):
+            solver(h, np.ones((6, 1)))  # (N, 1) against (N,): no broadcasting
+        with pytest.raises(AssertionError, match="mismatching"):
             solver(h, np.ones(5))
 
     @pytest.mark.parametrize("solver", ALL_SOLVERS)
@@ -686,7 +686,7 @@ class TestErrorHandling:
             solver(h, y)
 
     def test_unknown_method_is_rejected(self):
-        with pytest.raises(ValueError, match="methode inconnue"):
+        with pytest.raises(ValueError, match="unknown method"):
             fit_polynomial(np.linspace(0, 1, 5), np.ones(5), 2, "cholesky")
 
     @pytest.mark.parametrize("bad_degree, exc", [(-1, ValueError), (2.5, TypeError)])
@@ -705,7 +705,7 @@ class TestErrorHandling:
             compare_solvers(x, y, 2)
 
     def test_inputs_are_not_mutated_by_any_solver(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         x0, y0 = x.copy(), y.copy()
         for method in ("normal", "qr", "svd"):
             fit_polynomial(x, y, 3, method)
@@ -718,14 +718,14 @@ class TestErrorHandling:
         assert np.array_equal(h, h0)
 
     def test_results_are_float64_vectors_of_length_p(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         h = vandermonde(x, 5)
         for solver in (solve_normal_equations, solve_qr, solve_svd, solve_sklearn_reference):
             coef = solver(h, y)
             assert coef.dtype == np.float64 and coef.shape == (6,)
 
     def test_solvers_are_deterministic_and_leave_global_random_state_untouched(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         np.random.seed(7)
         state = np.random.get_state()[1].copy()
         first = [fit_polynomial(x, y, 5, m).coef for m in ("normal", "qr", "svd")]
@@ -734,9 +734,9 @@ class TestErrorHandling:
         assert np.array_equal(np.random.get_state()[1], state)
 
     def test_overflowing_normal_matrix_is_rank_deficient_not_non_finite(self):
-        # AE2-02 : ce cas ne passe PAS par la branche « resultat non fini » : H^T H deborde,
-        # son rang numerique vaut 1 et ``RankDeficientError`` qualifie la methode. Le
-        # conditionnement (SVD de H, sans former H^T H) reste fini.
+        # This case does NOT go through the "non-finite result" branch: H^T H overflows,
+        # its numerical rank is 1 and ``RankDeficientError`` qualifies the method. The
+        # conditioning (SVD of H, without forming H^T H) stays finite.
         x = np.linspace(1e100, 2e100, 6)
         c = compare_solvers(x, np.ones(6), 1)
         assert c.regime == "diagnostic"
@@ -744,10 +744,10 @@ class TestErrorHandling:
         assert c.coefficients["normal"] is None and "RankDeficientError" in c.errors["normal"]
 
     def test_non_finite_normal_equations_result_is_qualified_not_raised(self):
-        # AE2-02 : cible de grande amplitude. H est bien conditionnee (regime strict, rang
-        # complet) mais H^T y deborde : ``np.linalg.solve`` rend un resultat non fini, que
-        # compare_solvers qualifie sans lever. Les debordements numpy sont le phenomene
-        # teste, d'ou le filtre sur ``RuntimeWarning`` (sinon -W error les transforme en
+        # Large-amplitude target. H is well conditioned (strict regime, full rank)
+        # but H^T y overflows: ``np.linalg.solve`` returns a non-finite result, which
+        # compare_solvers qualifies without raising. The numpy overflows are the phenomenon
+        # under test, hence the filter on ``RuntimeWarning`` (otherwise -W error turns them into
         # exceptions).
         x = np.linspace(0.0, 1.2, 20, endpoint=False)
         y = np.full(20, 1e307)
@@ -756,11 +756,11 @@ class TestErrorHandling:
             assert not np.isfinite(np.linalg.solve(vandermonde(x, 1).T @ vandermonde(x, 1),
                                                    vandermonde(x, 1).T @ y)).all()
             c = compare_solvers(x, y, 1)
-        assert c.rank == 2 and c.regime == "strict"  # strict n'implique pas 3 methodes calculees
-        assert c.coefficients["normal"] is None and c.errors["normal"] == "resultat non fini"
+        assert c.rank == 2 and c.regime == "strict"  # strict does not imply 3 computed methods
+        assert c.coefficients["normal"] is None and c.errors["normal"] == "non-finite result"
         assert c.rel_error_inf["normal"] is None and c.mixed_tolerance_ok["normal"] is None
         assert not c.within_strict_tolerance("normal")
-        # QR et SVD restent calculees et finies, et concordent entre elles.
+        # QR and SVD remain computed and finite, and agree with each other.
         for method in ("qr", "svd", "sklearn"):
             assert np.isfinite(c.coefficients[method]).all()
         assert c.rel_error_inf["qr"] <= STRICT_RTOL
@@ -768,14 +768,14 @@ class TestErrorHandling:
 
     def test_non_finite_result_is_logged_as_not_applicable(self, caplog):
         x = np.linspace(0.0, 1.2, 20, endpoint=False)
-        with warnings.catch_warnings(), caplog.at_level(logging.INFO, logger="c0_tp2_mlp"):
+        with warnings.catch_warnings(), caplog.at_level(logging.INFO, logger="polynomial_mlp"):
             warnings.simplefilter("ignore", RuntimeWarning)
             compare_solvers(x, np.full(20, 1e307), 1)
         events = [r for r in caplog.records if r.getMessage() == "solver_comparison"]
         assert events and events[-1].fields["not_applicable"] == ["normal"]
 
     def test_fit_result_carries_conditioning_and_rank(self):
-        x, y = genere_base_apprentissage()
+        x, y = generate_training_set()
         logging.disable(logging.WARNING)
         try:
             fit = fit_polynomial(x, y, 5, "qr")
@@ -788,7 +788,7 @@ class TestErrorHandling:
 
 class TestRelativeError:
     def test_known_value_uses_the_infinity_norm(self):
-        # inf : max(0,5 ; 0,5) / max(1 ; 2) = 0,25 ; la norme 2 donnerait ~0,316.
+        # inf: max(0.5; 0.5) / max(1; 2) = 0.25; the 2-norm would give ~0.316.
         assert relative_error_inf([1.5, 2.5], [1.0, 2.0]) == pytest.approx(0.25, rel=1e-15)
 
     def test_denominator_is_floored_by_eps0(self):
@@ -811,7 +811,7 @@ class TestRelativeError:
 
 
 # --------------------------------------------------------------------------
-# Interface publique et coherence avec scikit-learn
+# Public interface and consistency with scikit-learn
 # --------------------------------------------------------------------------
 class TestPublicInterface:
     def test_all_exports_are_importable(self):
@@ -820,8 +820,8 @@ class TestPublicInterface:
 
     @pytest.mark.parametrize("degree", [1, 3, 5, 8])
     def test_matches_the_polynomial_features_pipeline_of_the_assignment(self, degree):
-        x, y = genere_base_apprentissage()
-        x_test, _ = genere_base_test()
+        x, y = generate_training_set()
+        x_test, _ = generate_test_set()
         regressor = LinearRegression(fit_intercept=False)
         pipe = make_pipeline(PolynomialFeatures(degree), regressor).fit(x, y)
         logging.disable(logging.WARNING)
@@ -837,10 +837,10 @@ class TestPublicInterface:
 
 
 # --------------------------------------------------------------------------
-# AE2-01 : seuil de regime autour de kappa(H^T H) = 1e7
+# regime threshold around kappa(H^T H) = 1e7
 # --------------------------------------------------------------------------
 def _kappa_hth_independent(x, degree):
-    """kappa(H^T H) recalcule sans le code du projet (np.vander + SVD)."""
+    """kappa(H^T H) recomputed without the project code (np.vander + SVD)."""
     s = np.linalg.svd(np.vander(np.ravel(x), degree + 1, increasing=True), compute_uv=False)
     return float((s[0] / s[-1]) ** 2)
 
@@ -849,8 +849,8 @@ def _grid(xmax, n=20):
     return np.linspace(0.0, xmax, n, endpoint=False)
 
 
-# Degre 5, N = 20, domaine [0 ; xmax[ : kappa(H^T H) vaut ~9e6 pour xmax = 1,0872 et ~1,1e7
-# pour xmax = 1,0435 (grille nominale : 6,22e6 a xmax = 1,2). Ces cas bornent 1e7 a +-10 %.
+# Degree 5, N = 20, domain [0; xmax): kappa(H^T H) is ~9e6 for xmax = 1.0872 and ~1.1e7
+# for xmax = 1.0435 (nominal grid: 6.22e6 at xmax = 1.2). These cases bound 1e7 to +-10 %.
 BELOW_XMAX, ABOVE_XMAX = 1.0872300003, 1.0434920974
 
 
@@ -879,7 +879,7 @@ class TestRegimeThresholdBoundary:
         y = np.sin(2 * np.pi * x)
         c = compare_solvers(x, y, 5)
         assert c.kappa_hth == pytest.approx(1.1e7, rel=1e-3) and c.kappa_hth > KAPPA_HTH_ALERT
-        assert c.regime == "diagnostic"  # detecte un seuil multiplie par 10 (>= 1e8)
+        assert c.regime == "diagnostic"  # detects a threshold multiplied by 10 (>= 1e8)
 
     def test_a_threshold_ten_times_higher_or_lower_would_change_a_verdict(self):
         k_below = _kappa_hth_independent(_grid(BELOW_XMAX), 5)
@@ -889,25 +889,25 @@ class TestRegimeThresholdBoundary:
             assert (k_below <= wrong, k_above <= wrong) != (True, False)
 
     def test_regime_follows_kappa_not_degree_across_the_boundary(self):
-        # Meme degre, meme N : seul le domaine change, le regime bascule.
+        # Same degree, same N: only the domain changes, the regime flips.
         x1, x2 = _grid(BELOW_XMAX), _grid(ABOVE_XMAX)
         assert compare_solvers(x1, np.ones(20), 5).regime == "strict"
         assert compare_solvers(x2, np.ones(20), 5).regime == "diagnostic"
 
     def test_alert_level_flips_at_the_threshold(self, caplog):
         logging.disable(logging.NOTSET)
-        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
+        with caplog.at_level(logging.INFO, logger="polynomial_mlp.metrics"):
             condition_numbers(vandermonde(_grid(BELOW_XMAX), 5))
             condition_numbers(vandermonde(_grid(ABOVE_XMAX), 5))
         levels = [(r.getMessage(), r.levelno) for r in caplog.records]
         assert levels == [("conditioning", logging.INFO), ("conditioning_alert", logging.WARNING)]
 
     def test_exact_threshold_value_is_not_an_alert(self, monkeypatch, caplog):
-        # Frontiere : kappa == seuil n'alerte pas (comparaison stricte ``>``).
+        # Boundary: kappa == threshold does not alert (strict comparison ``>``).
         logging.disable(logging.NOTSET)
-        h = np.diag([1e3, 1.0])  # kappa(H) = 1e3, kappa(H^T H) = 1e6 exactement
+        h = np.diag([1e3, 1.0])  # kappa(H) = 1e3, kappa(H^T H) = 1e6 exactly
         monkeypatch.setattr("src.utils.metrics.KAPPA_HTH_ALERT", 1e6)
-        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
+        with caplog.at_level(logging.INFO, logger="polynomial_mlp.metrics"):
             assert condition_numbers(h).kappa_hth == 1e6
         assert [(r.getMessage(), r.levelno) for r in caplog.records] == [
             ("conditioning", logging.INFO)

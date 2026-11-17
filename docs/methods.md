@@ -28,11 +28,11 @@ The implementation distinguishes two regimes using a threshold of $10^7$ on $\ka
 
 ## 3. Degree selection in one dimension
 
-For each degree $d \in \{1, \dots, 12\}$ the training error EQM($d$) and the test error EQMT($d$) are mean squared errors on the training set and on 200 noise-free test points. The optimal degree is
+For each degree $d \in \{1, \dots, 12\}$ the training error MSE($d$) and the test error test MSE($d$) are mean squared errors on the training set and on 200 noise-free test points. The optimal degree is
 
-$$C^\* = \arg\min_d \; \mathrm{EQMT}(d),$$
+$$C^\* = \arg\min_d \; \mathrm{test\ MSE}(d),$$
 
-with the smallest degree chosen on ties. Because $C^\*$ is selected on the test set, EQMT($C^\*$) is an optimistically biased estimate of generalisation error. A single noisy sample is only one realisation, so the project also reports the distribution of $C^\*$ over 50 noise seeds.
+with the smallest degree chosen on ties. Because $C^\*$ is selected on the test set, test MSE($C^\*$) is an optimistically biased estimate of generalisation error. A single noisy sample is only one realisation, so the project also reports the distribution of $C^\*$ over 50 noise seeds.
 
 ## 4. Multilayer perceptron regression
 
@@ -52,7 +52,7 @@ Metrics are mean squared error, root mean squared error, the coefficient of dete
 
 ## 5. Selection protocol
 
-1. Networks are trained on the 200 official observations.
+1. Networks are trained on the 200 input observations.
 2. All configurations are compared by mean validation MSE over 10 seeds on a separate validation grid. Ties are resolved by a fixed rule (smallest width, or grid order).
 3. The selected configurations are written to `results/tables/mlp_2d_selection.json` and `results/tables/mlp_2d_hstar.json`, and their SHA-256 hashes are recorded.
 4. Only then does the final evaluation module recompute the selection from validation records, check it against the frozen files, retrain the selected networks, verify their weight fingerprints and read the test set.

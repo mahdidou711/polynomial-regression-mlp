@@ -1,14 +1,14 @@
 # Results
 
-All values below are copied from the frozen tables in `results/tables/`; the source file is named next to each table. They describe the specific experiments in [experiments](experiments.md) and are not general performance guarantees. Statistics over 10 or 50 seeds are descriptive, not confidence intervals. Figure annotations are in French, the language of the original study.
+All values below are copied from the tables generated in `results/tables/`; the source file is named next to each table. They describe the specific experiments in [experiments](experiments.md) and are not general performance guarantees. Statistics over 10 or 50 seeds are descriptive, not confidence intervals. Figure annotations are in French, the language of the original study.
 
 ## 1. One-dimensional polynomial regression
 
 ### Nominal experiment, 50 noise seeds
 
-Setting: $N = 20$, $\sigma = 0.2$, seeds 1000 to 1049. Source: `nominal_1d_stats_50_graines.csv` and `nominal_1d_cstar_50_graines.csv`.
+Setting: $N = 20$, $\sigma = 0.2$, seeds 1000 to 1049. Source: `nominal_1d_stats_50_seeds.csv` and `nominal_1d_cstar_50_seeds.csv`.
 
-| Degree | Mean EQM (train) | Mean EQMT (test) | Median EQMT | Seeds with $C^\*$ = degree |
+| Degree | Mean MSE (train) | Mean test MSE (test) | Median test MSE | Seeds with $C^\*$ = degree |
 | ---: | ---: | ---: | ---: | ---: |
 | 1 | 0.4063 | 0.4159 | 0.4140 | 0 |
 | 2 | 0.3205 | 0.2828 | 0.2812 | 0 |
@@ -25,7 +25,7 @@ Setting: $N = 20$, $\sigma = 0.2$, seeds 1000 to 1049. Source: `nominal_1d_stats
 
 Training error decreases with the degree, while test error is smallest around degrees 5 and 6 and then grows quickly, which is the usual overfitting pattern for this setting. The optimal degree $C^\*$ is 6 in 24 of the 50 seeds and 5 in 14. Since $C^\*$ is chosen on the test set, its test error is optimistic.
 
-![Test error and optimal degree over 50 seeds](../results/figures/polynomial/nominal_1d_campaign_50_graines.png)
+![Test error and optimal degree over 50 seeds](../results/figures/polynomial/nominal_1d_campaign_50_seeds.png)
 
 ![Polynomial fits for degrees 1 to 12, seed 42](../results/figures/polynomial/nominal_1d_fits.png)
 
@@ -51,9 +51,9 @@ The gap of the normal equations grows with $\kappa(H^\top H)$ and reaches 0.85 a
 
 ### Explorations
 
-Sample size ($\sigma = 0.2$, 50 seeds each). Source: `exploration_nb_ex_synthese.csv`.
+Sample size ($\sigma = 0.2$, 50 seeds each). Source: `exploration_n_samples_summary.csv`.
 
-| $N$ | Most frequent $C^\*$ | Lowest median EQMT | Median EQMT at degree 12 |
+| $N$ | Most frequent $C^\*$ | Lowest median test MSE | Median test MSE at degree 12 |
 | ---: | ---: | ---: | ---: |
 | 10 | 5 | 0.05234 | 390.6 |
 | 15 | 5 | 0.02003 | 94.14 |
@@ -62,9 +62,9 @@ Sample size ($\sigma = 0.2$, 50 seeds each). Source: `exploration_nb_ex_synthese
 | 100 | 6 | 0.002440 | 0.004746 |
 | 200 | 6 | 0.001515 | 0.002422 |
 
-Noise level ($N = 20$, 50 seeds each, except one realisation for $\sigma = 0$). Source: `exploration_sigma_synthese.csv`.
+Noise level ($N = 20$, 50 seeds each, except one realisation for $\sigma = 0$). Source: `exploration_sigma_summary.csv`.
 
-| $\sigma$ | Most frequent $C^\*$ | Lowest median EQMT | Median EQMT at degree 12 |
+| $\sigma$ | Most frequent $C^\*$ | Lowest median test MSE | Median test MSE at degree 12 |
 | ---: | ---: | ---: | ---: |
 | 0 | 12 | 6.7e-11 | 6.7e-11 |
 | 0.05 | 6 | 9.83e-04 | 0.0807 |
@@ -75,7 +75,7 @@ Noise level ($N = 20$, 50 seeds each, except one realisation for $\sigma = 0$). 
 
 More data reduces the penalty of high degrees, and more noise moves the best degree downwards.
 
-![Effect of sample size](../results/figures/polynomial/exploration_nb_ex.png)
+![Effect of sample size](../results/figures/polynomial/exploration_n_samples.png)
 
 ![Effect of noise](../results/figures/polynomial/exploration_sigma.png)
 
@@ -126,15 +126,15 @@ Depth, activation, regularisation and optimiser (width 50 unless stated):
 
 The validation error improves up to 50 hidden units and then degrades slightly. Two-layer networks and tanh are better than the single-layer and ReLU alternatives at this size, a strong penalty ($\alpha = 0.1$) hurts, and Adam with the given budget stays well behind L-BFGS. Warnings about the iteration budget occurred in 5, 10, 6 and 10 of the 10 Adam runs of the four grid settings, and in none of the L-BFGS runs of the final evaluation.
 
-![Validation error by width](../results/figures/mlp/mlp_2d_largeur.png)
+![Validation error by width](../results/figures/mlp/mlp_2d_width.png)
 
-![Validation error of all configurations](../results/figures/mlp/mlp_2d_sensibilites.png)
+![Validation error of all configurations](../results/figures/mlp/mlp_2d_sensitivities.png)
 
 ![Iterations and stopping causes](../results/figures/mlp/mlp_2d_convergence.png)
 
 ### Final test evaluation
 
-Single evaluation on 1600 test points after the selection was frozen. Sources: `mlp_2d_final_synthese.csv` and `mlp_2d_solver_comparison.csv`.
+Single evaluation on 1600 test points after the selection was frozen. Sources: `mlp_2d_final_summary.csv` and `mlp_2d_solver_comparison.csv`.
 
 | Role | Configuration | Mean test MSE | Std | Min | Max | Mean $R^2$ | Mean iterations |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -144,8 +144,8 @@ Single evaluation on 1600 test points after the selection was frozen. Sources: `
 
 The final configuration has the lowest mean test error of the three. Its mean test error is larger than its mean validation error (0.0001441), which is consistent with the configuration having been selected on the validation set. The plotted network is one of the 10 runs (seed 1819) and is not representative of the spread above.
 
-![Parity plot of the plotted network](../results/figures/mlp/mlp_2d_parite.png)
+![Parity plot of the plotted network](../results/figures/mlp/mlp_2d_parity.png)
 
-![Absolute residual map](../results/figures/mlp/mlp_2d_residus_carte.png)
+![Absolute residual map](../results/figures/mlp/mlp_2d_residual_map.png)
 
-![Exact surface, prediction and residual](../results/figures/mlp/mlp_2d_planche_3d.png)
+![Exact surface, prediction and residual](../results/figures/mlp/mlp_2d_panel_3d.png)

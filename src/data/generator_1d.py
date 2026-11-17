@@ -1,21 +1,21 @@
-"""Generation et echantillonnage des donnees 1D (etape 1, plan 04 etape 1).
+"""Generation and sampling of the 1D data.
 
-Fonction cible officielle (enonce 2026-2027, diapositive 9) :
+Target function:
     f(x) = sin(-pi + 2*pi*x) = -sin(2*pi*x)
 
-Convention d'echantillonnage de l'enseignant : ``np.arange(xmin, xmax,
-(xmax - xmin) / NbEx)``, soit NbEx points equidistants sur l'intervalle
-semi-ouvert [xmin, xmax) (borne haute EXCLUE, pas = (xmax - xmin) / NbEx).
-Ici ``np.linspace(xmin, xmax, NbEx, endpoint=False)`` garantit un nombre de
-points egal a NbEx (EXG-PROG-B2-02). Ses abscisses sont identiques bit a bit a
-celles de ``np.arange`` sur les grilles du projet (NbEx dans {10, 15, 20, 50,
-100, 200} sur [0 ; 1,2[) ; ailleurs elles ne coincident qu'a quelques ulps pres
-(ecart maximal mesure 2,6e-15 sur NbEx de 1 a 399 et trois domaines), et
-``np.arange`` peut renvoyer NbEx + 1 points (37 cas sur 1197). Ces constats sont
-verifies par les tests (AE1-03).
+Reference sampling convention: ``np.arange(xmin, xmax, (xmax - xmin) / n_samples)``,
+that is n_samples equally spaced points on the half-open interval [xmin, xmax)
+(upper bound EXCLUDED, step = (xmax - xmin) / n_samples).
+Here ``np.linspace(xmin, xmax, n_samples, endpoint=False)`` guarantees a number of
+points equal to n_samples. Its abscissas are bit-for-bit identical to those of
+``np.arange`` on the grids used by the project (n_samples in {10, 15, 20, 50,
+100, 200} on [0; 1.2)); elsewhere they only agree to a few ulps (maximal
+measured difference 2.6e-15 for n_samples from 1 to 399 and three domains), and
+``np.arange`` can return n_samples + 1 points (37 cases out of 1197). These
+findings are checked by the tests.
 
-Le bruit gaussien utilise un ``numpy.random.Generator`` local (``make_rng``) :
-l'etat aleatoire global n'est ni lu ni modifie.
+The Gaussian noise uses a local ``numpy.random.Generator`` (``make_rng``):
+the global random state is neither read nor modified.
 """
 
 import numbers
@@ -24,67 +24,67 @@ import numpy as np
 
 from src.utils.seeding import SEED_GLOBAL, make_rng
 
-# Parametres nominaux (CDC, plan 04 etape 1).
+# Nominal parameters.
 XMIN_NOMINAL = 0.0
 XMAX_NOMINAL = 1.2
-NB_EX_NOMINAL = 20
+N_SAMPLES_NOMINAL = 20
 SIGMA_NOMINAL = 0.2
 N_TEST_NOMINAL = 200
 
 
-def fonction_cible(x):
-    """Fonction cible officielle ``sin(-pi + 2*pi*x)`` (sans bruit)."""
+def target_function(x):
+    """Target function ``sin(-pi + 2*pi*x)`` (noise-free)."""
     return np.sin(-np.pi + 2 * np.asarray(x, dtype=float) * np.pi)
 
 
 def _check_real(value, name):
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
-        raise TypeError(f"{name} : reel attendu, recu {type(value).__name__} : {value!r}")
+        raise TypeError(f"{name} : real expected, got {type(value).__name__} : {value!r}")
     value = float(value)
     if not np.isfinite(value):
-        raise ValueError(f"{name} doit etre fini : {value}")
+        raise ValueError(f"{name} must be finite: {value}")
     return value
 
 
 def _check_count(value, name):
     if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise TypeError(f"{name} : entier attendu, recu {type(value).__name__} : {value!r}")
+        raise TypeError(f"{name} : integer expected, got {type(value).__name__} : {value!r}")
     value = int(value)
     if value < 1:
-        raise ValueError(f"{name} doit etre >= 1 : {value}")
+        raise ValueError(f"{name} must be >= 1: {value}")
     return value
 
 
-def genere_exemple_dim1(xmin, xmax, NbEx, sigma, seed=SEED_GLOBAL):
-    """Base 1D bruitee, signature pedagogique + graine explicite.
+def generate_example_1d(xmin, xmax, n_samples, sigma, seed=SEED_GLOBAL):
+    """Noisy 1D data set with an explicit seed.
 
-    Renvoie ``(x, y)`` avec ``x`` de forme (NbEx, 1) (abscisses de l'enseignant,
-    intervalle [xmin, xmax)) et ``y`` de forme (NbEx,) = f(x) + N(0, sigma^2).
-    ``seed`` (defaut 42, graine nominale) pilote un generateur local ; il est
-    valide meme si ``sigma == 0``.
+    Returns ``(x, y)`` with ``x`` of shape (n_samples, 1) (reference abscissas,
+    interval [xmin, xmax)) and ``y`` of shape (n_samples,) = f(x) + N(0, sigma^2).
+    ``seed`` (default 42, nominal seed) drives a local generator; it is
+    validated even if ``sigma == 0``.
     """
     xmin = _check_real(xmin, "xmin")
     xmax = _check_real(xmax, "xmax")
-    nb_ex = _check_count(NbEx, "NbEx")
+    n_samples = _check_count(n_samples, "n_samples")
     sigma = _check_real(sigma, "sigma")
     if not xmin < xmax:
-        raise ValueError(f"domaine vide ou inverse : xmin={xmin}, xmax={xmax}")
+        raise ValueError(f"empty or reversed domain: xmin={xmin}, xmax={xmax}")
     if sigma < 0:
-        raise ValueError(f"sigma doit etre >= 0 : {sigma}")
+        raise ValueError(f"sigma must be >= 0: {sigma}")
     rng = make_rng(seed)
 
-    x = np.linspace(xmin, xmax, nb_ex, endpoint=False)
-    assert x.shape == (nb_ex,)  # EXG-PROG-B2-02
-    y = fonction_cible(x) + rng.normal(loc=0.0, scale=sigma, size=x.size)
+    x = np.linspace(xmin, xmax, n_samples, endpoint=False)
+    assert x.shape == (n_samples,)
+    y = target_function(x) + rng.normal(loc=0.0, scale=sigma, size=x.size)
     return x.reshape(-1, 1), y
 
 
-def genere_base_apprentissage(nb_ex=NB_EX_NOMINAL, sigma=SIGMA_NOMINAL, seed=SEED_GLOBAL,
+def generate_training_set(n_samples=N_SAMPLES_NOMINAL, sigma=SIGMA_NOMINAL, seed=SEED_GLOBAL,
                               xmin=XMIN_NOMINAL, xmax=XMAX_NOMINAL):
-    """Base d'apprentissage (nominal : 20 points, sigma = 0,2, graine 42)."""
-    return genere_exemple_dim1(xmin, xmax, nb_ex, sigma, seed=seed)
+    """Training set (nominal: 20 points, sigma = 0.2, seed 42)."""
+    return generate_example_1d(xmin, xmax, n_samples, sigma, seed=seed)
 
 
-def genere_base_test(n_test=N_TEST_NOMINAL, xmin=XMIN_NOMINAL, xmax=XMAX_NOMINAL):
-    """Base de test sans bruit (nominal : 200 points sur [0 ; 1,2))."""
-    return genere_exemple_dim1(xmin, xmax, n_test, 0.0)
+def generate_test_set(n_test=N_TEST_NOMINAL, xmin=XMIN_NOMINAL, xmax=XMAX_NOMINAL):
+    """Noise-free test set (nominal: 200 points on [0; 1.2))."""
+    return generate_example_1d(xmin, xmax, n_test, 0.0)

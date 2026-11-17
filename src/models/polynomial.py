@@ -1,25 +1,25 @@
-"""Regression polynomiale 1D : Vandermonde et solveurs OLS / QR / SVD (etape 2).
+"""1D polynomial regression: Vandermonde matrix and OLS / QR / SVD solvers.
 
-Modele : y ~ H @ beta, avec H[i, j] = x_i ** j pour j = 0..d (matrice non centree).
-La colonne 0 de H (des uns) porte deja le terme constant : aucun biais
-supplementaire n'est ajoute, et la reference scikit-learn est construite avec
-``LinearRegression(fit_intercept=False)`` (EXG-PROG-B1-03).
+Model: y ~ H @ beta, with H[i, j] = x_i ** j for j = 0..d (uncentred matrix).
+Column 0 of H (ones) already carries the constant term: no additional bias is
+added, and the scikit-learn reference is built with
+``LinearRegression(fit_intercept=False)``.
 
-Trois solveurs, au sens du CDC 7.1 :
-- ``solve_normal_equations`` : (H^T H) beta = H^T y par ``np.linalg.solve`` ;
-- ``solve_qr``               : H = QR puis R beta = Q^T y (``scipy.linalg.solve_triangular``) ;
-- ``solve_svd``              : ``scipy.linalg.lstsq`` (pilote ``gelsd``, SVD), le solveur de
-  ``LinearRegression`` ; solution de norme minimale si H est de rang inferieur a p.
+Three solvers:
+- ``solve_normal_equations``: (H^T H) beta = H^T y through ``np.linalg.solve``;
+- ``solve_qr``              : H = QR then R beta = Q^T y (``scipy.linalg.solve_triangular``);
+- ``solve_svd``             : ``scipy.linalg.lstsq`` (driver ``gelsd``, SVD), the solver of
+  ``LinearRegression``; minimum-norm solution if H has rank lower than p.
 
-Les equations normales et QR exigent un systeme de rang colonne complet (N >= p et
-rang(H) = p) ; sinon elles levent ``RankDeficientError`` (sous-classe de
-``numpy.linalg.LinAlgError``). Seul le solveur SVD traite N < p et les matrices
-deficientes en rang. ``compare_solvers`` ne leve jamais pour cette raison : il qualifie
-chaque methode (calculee ou non applicable) et mesure l'ecart au solveur SVD.
+The normal equations and QR require a full column rank system (N >= p and
+rank(H) = p); otherwise they raise ``RankDeficientError`` (subclass of
+``numpy.linalg.LinAlgError``). Only the SVD solver handles N < p and rank-deficient
+matrices. ``compare_solvers`` never raises for this reason: it qualifies each method
+(computed or not applicable) and measures the gap to the SVD solver.
 
-Distinction des conditionnements (avenant 10.2) : kappa_2(H) conditionne QR et SVD ;
-kappa(H^T H) = kappa_2(H)**2 (rang colonne complet) conditionne les equations normales.
-Les deux sont obtenus par ``condition_numbers`` (SVD de H, sans former H^T H).
+The two condition numbers are distinct: kappa_2(H) governs QR and SVD;
+kappa(H^T H) = kappa_2(H)**2 (full column rank) governs the normal equations.
+Both are obtained by ``condition_numbers`` (SVD of H, without forming H^T H).
 """
 
 import logging
@@ -32,61 +32,61 @@ from sklearn.linear_model import LinearRegression
 from src.utils.logger import log_event
 from src.utils.metrics import KAPPA_HTH_ALERT, _as_float_array, condition_numbers
 
-METHODS = ("normal", "qr", "svd")  # ordre de presentation ; "svd" est la reference
+METHODS = ("normal", "qr", "svd")  # presentation order; "svd" is the reference
 
-EPS_0 = 1e-12  # plancher du denominateur du critere de concordance (avenant 7.10)
-STRICT_RTOL = 1e-7  # tolerance relative stricte (regime kappa(H^T H) <= KAPPA_HTH_ALERT)
-MIXED_ATOL = 1e-10  # critere mixte par coefficient : grandeur diagnostique (CDC 7.1 point 3)
+EPS_0 = 1e-12  # floor of the denominator of the agreement criterion
+STRICT_RTOL = 1e-7  # strict relative tolerance (regime kappa(H^T H) <= KAPPA_HTH_ALERT)
+MIXED_ATOL = 1e-10  # mixed per-coefficient criterion: diagnostic quantity
 MIXED_RTOL = 1e-7
 
-_logger = logging.getLogger("c0_tp2_mlp.polynomial")
+_logger = logging.getLogger("polynomial_mlp.polynomial")
 
 
 class RankDeficientError(np.linalg.LinAlgError):
-    """H est de rang colonne incomplet (N < p ou rang(H) < p) : H^T H est singuliere."""
+    """H has incomplete column rank (N < p or rank(H) < p): H^T H is singular."""
 
 
 # --------------------------------------------------------------------------
-# Validation des entrees
+# Input validation
 # --------------------------------------------------------------------------
 def _check_degree(degree) -> int:
     if isinstance(degree, bool) or not isinstance(degree, (int, np.integer)):
-        raise TypeError(f"degree : entier attendu, recu {type(degree).__name__} : {degree!r}")
+        raise TypeError(f"degree: integer expected, got {type(degree).__name__} : {degree!r}")
     if degree < 0:
-        raise ValueError(f"degree doit etre >= 0 : {degree}")
+        raise ValueError(f"degree must be >= 0: {degree}")
     return int(degree)
 
 
 def _check_abscissas(x) -> np.ndarray:
-    """Abscisses sous forme de vecteur (N,) ; un vecteur colonne (N, 1) est accepte
-    (forme native de ``genere_exemple_dim1``), toute autre forme est rejetee."""
+    """Abscissas as an (N,) vector; an (N, 1) column vector is accepted
+    (native shape of ``generate_example_1d``), any other shape is rejected."""
     a = _as_float_array(x, "x")
     if a.ndim == 2 and a.shape[1] == 1:
         a = a[:, 0]
     if a.ndim != 1:
-        raise ValueError(f"x : forme (N,) ou (N, 1) attendue, recu {a.shape}")
+        raise ValueError(f"x: shape (N,) or (N, 1) expected, got {a.shape}")
     if a.size == 0:
-        raise ValueError("x : vecteur vide")
+        raise ValueError("x: empty vector")
     if not np.isfinite(a).all():
-        raise ValueError("x : valeurs non finies (NaN ou inf)")
+        raise ValueError("x: non-finite values (NaN or inf)")
     return a
 
 
 def _check_system(h, y) -> tuple[np.ndarray, np.ndarray]:
-    """Valide (H, y) : H (N, p) reelle finie, y (N,) reelle finie (pas de broadcasting)."""
+    """Validate (H, y): H (N, p) real finite, y (N,) real finite (no broadcasting)."""
     a = _as_float_array(h, "H")
     if a.ndim != 2:
-        raise ValueError(f"H : matrice 2D attendue, recu ndim = {a.ndim}")
+        raise ValueError(f"H: 2D matrix expected, got ndim = {a.ndim}")
     if a.size == 0:
-        raise ValueError("H : matrice vide")
+        raise ValueError("H: empty matrix")
     b = _as_float_array(y, "y")
-    if b.shape != (a.shape[0],):  # explicite : survit a ``python -O``
+    if b.shape != (a.shape[0],):  # explicit: survives ``python -O``
         raise AssertionError(
-            f"formes divergentes : y.shape={b.shape} != ({a.shape[0]},) "
-            "(vecteur 1D de longueur N attendu, broadcasting interdit)"
+            f"mismatching shapes: y.shape={b.shape} != ({a.shape[0]},) "
+            "(1D vector of length N expected, broadcasting forbidden)"
         )
     if not (np.isfinite(a).all() and np.isfinite(b).all()):
-        raise ValueError("valeurs non finies (NaN ou inf) dans H ou y")
+        raise ValueError("non-finite values (NaN or inf) in H or y")
     return a, b
 
 
@@ -94,79 +94,79 @@ def _require_full_column_rank(h: np.ndarray, method: str) -> None:
     n_rows, n_cols = h.shape
     if n_rows < n_cols:
         raise RankDeficientError(
-            f"{method} : N = {n_rows} < p = {n_cols}, H^T H singuliere (utiliser le solveur SVD)"
+            f"{method} : N = {n_rows} < p = {n_cols}, H^T H singular (use the SVD solver)"
         )
     rank = int(np.linalg.matrix_rank(h))
     if rank < n_cols:
         raise RankDeficientError(
-            f"{method} : rang(H) = {rank} < p = {n_cols}, H^T H singuliere "
-            "(utiliser le solveur SVD)"
+            f"{method} : rank(H) = {rank} < p = {n_cols}, H^T H singular "
+            "(use the SVD solver)"
         )
 
 
 # --------------------------------------------------------------------------
-# Matrice de Vandermonde, prediction, residus
+# Vandermonde matrix, prediction, residuals
 # --------------------------------------------------------------------------
 def vandermonde(x, degree) -> np.ndarray:
-    """Matrice de Vandermonde non centree H (N, d+1), H[i, j] = x_i ** j, j = 0..d.
+    """Uncentred Vandermonde matrix H (N, d+1), H[i, j] = x_i ** j, j = 0..d.
 
-    ``x`` : vecteur (N,) ou colonne (N, 1) de reels finis. La colonne 0 vaut 1 (terme
-    constant, y compris pour x_i = 0). ``ValueError`` en cas de depassement flottant.
+    ``x``: vector (N,) or column (N, 1) of finite reals. Column 0 equals 1 (constant
+    term, including for x_i = 0). ``ValueError`` on floating-point overflow.
     """
     d = _check_degree(degree)
     a = _check_abscissas(x)
     with np.errstate(over="ignore", invalid="ignore"):
         h = a[:, None] ** np.arange(d + 1)
     if not np.isfinite(h).all():
-        raise ValueError(f"depassement de capacite dans x ** j pour degree = {d}")
+        raise ValueError(f"overflow in x ** j for degree = {d}")
     return h
 
 
 def _check_coef(coef) -> np.ndarray:
     c = _as_float_array(coef, "coef")
     if c.ndim != 1 or c.size == 0:
-        raise ValueError(f"coef : vecteur 1D non vide attendu, recu {c.shape}")
+        raise ValueError(f"coef: non-empty 1D vector expected, got {c.shape}")
     if not np.isfinite(c).all():
-        raise ValueError("coef : valeurs non finies (NaN ou inf)")
+        raise ValueError("coef: non-finite values (NaN or inf)")
     return c
 
 
 def predict(coef, x) -> np.ndarray:
-    """Prediction y_hat = H(x) @ coef, de forme (N,) ; le degre est ``len(coef) - 1``."""
+    """Prediction y_hat = H(x) @ coef, of shape (N,); the degree is ``len(coef) - 1``."""
     c = _check_coef(coef)
     return vandermonde(x, c.size - 1) @ c
 
 
 def residuals(coef, x, y) -> np.ndarray:
-    """Residus y - y_hat, de forme (N,) ; ``y`` doit etre un vecteur 1D de longueur N."""
+    """Residuals y - y_hat, of shape (N,); ``y`` must be a 1D vector of length N."""
     y_hat = predict(coef, x)
     b = _as_float_array(y, "y")
     if b.shape != y_hat.shape:
         raise AssertionError(
-            f"formes divergentes : y.shape={b.shape} != {y_hat.shape} (broadcasting interdit)"
+            f"mismatching shapes: y.shape={b.shape} != {y_hat.shape} (broadcasting forbidden)"
         )
     return b - y_hat
 
 
 # --------------------------------------------------------------------------
-# Solveurs
+# Solvers
 # --------------------------------------------------------------------------
 def solve_normal_equations(h, y) -> np.ndarray:
-    """Equations normales (H^T H) beta = H^T y (``np.linalg.solve``).
+    """Normal equations (H^T H) beta = H^T y (``np.linalg.solve``).
 
-    Precision en O(kappa(H^T H) * eps) : instable des que kappa(H)^2 approche 1/eps.
-    ``RankDeficientError`` si N < p ou rang(H) < p ; ``LinAlgError`` si la factorisation
-    LU rencontre un pivot exactement nul.
+    Accuracy O(kappa(H^T H) * eps): unstable as soon as kappa(H)^2 approaches 1/eps.
+    ``RankDeficientError`` if N < p or rank(H) < p; ``LinAlgError`` if the LU
+    factorisation meets an exactly zero pivot.
     """
     a, b = _check_system(h, y)
-    _require_full_column_rank(a, "equations normales")
+    _require_full_column_rank(a, "normal equations")
     return np.linalg.solve(a.T @ a, a.T @ b)
 
 
 def solve_qr(h, y) -> np.ndarray:
-    """Factorisation QR economique H = QR puis R beta = Q^T y (substitution arriere).
+    """Economy QR factorisation H = QR then R beta = Q^T y (back substitution).
 
-    Precision en O(kappa(H) * eps). ``RankDeficientError`` si N < p ou rang(H) < p.
+    Accuracy O(kappa(H) * eps). ``RankDeficientError`` if N < p or rank(H) < p.
     """
     a, b = _check_system(h, y)
     _require_full_column_rank(a, "QR")
@@ -175,11 +175,11 @@ def solve_qr(h, y) -> np.ndarray:
 
 
 def solve_svd(h, y) -> np.ndarray:
-    """Moindres carres par SVD (``scipy.linalg.lstsq``, pilote ``gelsd``).
+    """Least squares by SVD (``scipy.linalg.lstsq``, driver ``gelsd``).
 
-    Meme appel que ``LinearRegression`` : valeurs singulieres inferieures a
-    ``max(N, p) * eps * sigma_max`` ignorees. Solution de norme minimale si H est de rang
-    inferieur a p (N < p, abscisses repetees).
+    Same call as ``LinearRegression``: singular values below
+    ``max(N, p) * eps * sigma_max`` are ignored. Minimum-norm solution if H has rank
+    lower than p (N < p, repeated abscissas).
     """
     a, b = _check_system(h, y)
     cond = max(a.shape) * np.finfo(np.float64).eps
@@ -187,10 +187,10 @@ def solve_svd(h, y) -> np.ndarray:
 
 
 def solve_sklearn_reference(h, y) -> np.ndarray:
-    """Reference scikit-learn : ``LinearRegression(fit_intercept=False)`` sur H.
+    """scikit-learn reference: ``LinearRegression(fit_intercept=False)`` on H.
 
-    La colonne de uns de H est le terme constant ; ``fit_intercept=False`` evite un
-    second biais (EXG-PROG-B1-03). Meme algorithme que ``solve_svd``.
+    The column of ones of H is the constant term; ``fit_intercept=False`` avoids a
+    second bias. Same algorithm as ``solve_svd``.
     """
     a, b = _check_system(h, y)
     return LinearRegression(fit_intercept=False).fit(a, b).coef_
@@ -200,25 +200,25 @@ SOLVERS = {"normal": solve_normal_equations, "qr": solve_qr, "svd": solve_svd}
 
 
 def relative_error_inf(beta, beta_ref, eps0: float = EPS_0) -> float:
-    """Ecart relatif en norme infinie ||beta - ref||_inf / max(||ref||_inf, eps0) (CDC 7.1).
+    """Relative gap in infinity norm ||beta - ref||_inf / max(||ref||_inf, eps0).
 
-    Renvoie ``inf`` si ``beta`` contient une valeur non finie.
+    Returns ``inf`` if ``beta`` contains a non-finite value.
     """
     b = _as_float_array(beta, "beta")
     r = _as_float_array(beta_ref, "beta_ref")
     if b.shape != r.shape or b.ndim != 1:
-        raise AssertionError(f"formes divergentes ou non 1D : {b.shape} contre {r.shape}")
+        raise AssertionError(f"mismatching or non-1D shapes: {b.shape} against {r.shape}")
     if not np.isfinite(b).all():
         return float("inf")
     return float(np.max(np.abs(b - r)) / max(float(np.max(np.abs(r))), eps0))
 
 
 # --------------------------------------------------------------------------
-# Ajustement et comparaison
+# Fitting and comparison
 # --------------------------------------------------------------------------
 @dataclass(frozen=True)
 class PolynomialFit:
-    """Resultat de ``fit_polynomial`` : coefficients (beta_0..beta_d) et diagnostics."""
+    """Result of ``fit_polynomial``: coefficients (beta_0..beta_d) and diagnostics."""
 
     coef: np.ndarray
     degree: int
@@ -231,24 +231,24 @@ class PolynomialFit:
         return predict(self.coef, x)
 
 
-AUTO = "auto"  # selection automatique de fit_polynomial : QR si rang complet, sinon SVD
+AUTO = "auto"  # automatic selection of fit_polynomial: QR if full rank, otherwise SVD
 
 
 def _check_method(method) -> str:
     if method != AUTO and method not in SOLVERS:
-        raise ValueError(f"methode inconnue : {method!r} (attendu parmi {METHODS + (AUTO,)})")
+        raise ValueError(f"unknown method: {method!r} (expected among {METHODS + (AUTO,)})")
     return method
 
 
 def fit_polynomial(x, y, degree, method: str = "svd") -> PolynomialFit:
-    """Ajuste un polynome de degre ``degree`` par ``method``.
+    """Fit a polynomial of degree ``degree`` with ``method``.
 
-    ``method`` : 'normal', 'qr', 'svd' (defaut, solveur de reference) ou 'auto'. 'auto'
-    bascule sur la SVD, seule methode definie pour N < p ou rang(H) < p, et utilise QR
-    sinon ; ``PolynomialFit.method`` indique la methode effectivement employee.
-    Le conditionnement est calcule et journalise (``condition_numbers`` : alerte
-    WARNING si kappa(H^T H) > KAPPA_HTH_ALERT, sans blocage). ``RankDeficientError`` si
-    'normal' ou 'qr' est demande explicitement sur un systeme de rang colonne incomplet.
+    ``method``: 'normal', 'qr', 'svd' (default, reference solver) or 'auto'. 'auto'
+    switches to the SVD, the only method defined for N < p or rank(H) < p, and uses QR
+    otherwise; ``PolynomialFit.method`` gives the method actually used.
+    The conditioning is computed and logged (``condition_numbers``: WARNING alert
+    if kappa(H^T H) > KAPPA_HTH_ALERT, non-blocking). ``RankDeficientError`` if
+    'normal' or 'qr' is explicitly requested on a system of incomplete column rank.
     """
     method = _check_method(method)
     h = vandermonde(x, degree)
@@ -263,17 +263,17 @@ def fit_polynomial(x, y, degree, method: str = "svd") -> PolynomialFit:
 
 @dataclass(frozen=True)
 class SolverComparison:
-    """Comparaison des solveurs sur un systeme (x, y, degre), protocole ARB-08.
+    """Comparison of the solvers on a system (x, y, degree).
 
-    - ``regime`` : ``'strict'`` si rang(H) = p et kappa(H^T H) <= KAPPA_HTH_ALERT (la
-      concordance a ``STRICT_RTOL`` est alors attendue), sinon ``'diagnostic'`` (ecart
-      mesure et rapporte, jamais rejete).
-    - ``coefficients`` : par methode ('normal', 'qr', 'svd', 'sklearn') ; ``None`` si la
-      methode est non applicable (voir ``errors``).
-    - ``rel_error_inf`` : critere de concordance de l'avenant 7.10 face a la SVD, pour
-      'normal', 'qr' et 'sklearn' (``None`` si non calcule).
-    - ``mixed_tolerance_ok`` : critere mixte par coefficient (atol 1e-10, rtol 1e-7),
-      grandeur diagnostique.
+    - ``regime``: ``'strict'`` if rank(H) = p and kappa(H^T H) <= KAPPA_HTH_ALERT (agreement
+      at ``STRICT_RTOL`` is then expected), otherwise ``'diagnostic'`` (gap
+      measured and reported, never rejected).
+    - ``coefficients``: per method ('normal', 'qr', 'svd', 'sklearn'); ``None`` if the
+      method is not applicable (see ``errors``).
+    - ``rel_error_inf``: agreement criterion against the SVD, for
+      'normal', 'qr' and 'sklearn' (``None`` if not computed).
+    - ``mixed_tolerance_ok``: mixed per-coefficient criterion (atol 1e-10, rtol 1e-7),
+      diagnostic quantity.
     """
 
     degree: int
@@ -289,18 +289,18 @@ class SolverComparison:
     mixed_tolerance_ok: dict
 
     def within_strict_tolerance(self, method: str) -> bool:
-        """Vrai si ``method`` a ete calculee et concorde avec la SVD a ``STRICT_RTOL``."""
+        """True if ``method`` was computed and agrees with the SVD at ``STRICT_RTOL``."""
         err = self.rel_error_inf.get(method)
         return err is not None and err <= STRICT_RTOL
 
 
 def compare_solvers(x, y, degree) -> SolverComparison:
-    """Compare equations normales, QR, SVD et ``LinearRegression`` sur (x, y, degre).
+    """Compare normal equations, QR, SVD and ``LinearRegression`` on (x, y, degree).
 
-    Ne leve pas lorsque 'normal' ou 'qr' ne s'appliquent pas (N < p, rang deficient,
-    pivot nul, resultat non fini) : la methode est qualifiee dans ``errors``. Journalise
-    l'evenement ``solver_comparison`` (niveau INFO) ; l'alerte de conditionnement est
-    emise par ``condition_numbers``.
+    Does not raise when 'normal' or 'qr' do not apply (N < p, rank deficiency,
+    zero pivot, non-finite result): the method is qualified in ``errors``. Logs
+    the ``solver_comparison`` event (INFO level); the conditioning alert is
+    emitted by ``condition_numbers``.
     """
     d = _check_degree(degree)
     a, b = _check_system(vandermonde(x, d), y)
@@ -313,11 +313,11 @@ def compare_solvers(x, y, degree) -> SolverComparison:
     for method in ("normal", "qr"):
         try:
             coef = SOLVERS[method](a, b)
-        except np.linalg.LinAlgError as exc:  # inclut RankDeficientError
+        except np.linalg.LinAlgError as exc:  # includes RankDeficientError
             coefficients[method], errors[method] = None, f"{type(exc).__name__}: {exc}"
             continue
         if not np.isfinite(coef).all():
-            coefficients[method], errors[method] = None, "resultat non fini"
+            coefficients[method], errors[method] = None, "non-finite result"
         else:
             coefficients[method] = coef
 

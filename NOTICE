@@ -1,0 +1,20 @@
+polynomial-regression-mlp
+Copyright (c) 2026 Mehdi Bouama, released under the MIT License (see LICENSE).
+
+Data
+----
+data/raw/sinc_dim2_input.csv
+  200 two-dimensional input points (centred Latin hypercube in the unit square),
+  supplied by Stéphane Gazut and Hanane Slimani (CEA LIST). The file is included
+  unchanged (SHA-256 997facd8edf592eb0f2d31eeffb84d88923dce04ace906f3a93f12067af1ad9a).
+  No redistribution licence for this file has been identified; the MIT License of
+  this repository does not apply to it.
+
+Third-party software (not redistributed; installed from requirements.txt)
+-------------------------------------------------------------------------
+  NumPy 2.4.6          BSD-3-Clause
+  SciPy 1.17.1         BSD-3-Clause
+  scikit-learn 1.8.0   BSD-3-Clause
+  Matplotlib 3.10.9    Matplotlib License (PSF-based)
+  threadpoolctl 3.6.0  BSD-3-Clause
+  pytest 9.2.0         MIT

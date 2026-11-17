@@ -1,7 +1,7 @@
-"""Entrainement MLP 2D et repetitions descriptives sur la validation.
+"""2D MLP training and descriptive repetitions on the validation set.
 
-Ce module ne charge aucune donnee et ne choisit aucun modele. Le test final est
-reserve a une evaluation distincte apres selection (DEC-20).
+This module loads no data and selects no model. The final test is reserved for a
+separate evaluation after selection.
 """
 
 from dataclasses import asdict, dataclass
@@ -20,10 +20,10 @@ from src.utils.seeding import SEEDS_MONTE_CARLO, validate_seed
 
 @dataclass(frozen=True)
 class MLPConfig:
-    """Parametres explicites ; budgets lbfgs de DEC-18 par defaut.
+    """Explicit parameters; default lbfgs budgets.
 
-    Pour la comparaison adam de DEC-19, fournir max_iter=5000, tol=1e-8,
-    n_iter_no_change=200, et le couple learning_rate_init/batch_size choisi.
+    For the adam comparison, provide max_iter=5000, tol=1e-8,
+    n_iter_no_change=200, and the chosen learning_rate_init/batch_size pair.
     """
     hidden_layer_sizes: tuple[int, ...] = (20,)
     activation: str = "tanh"
@@ -42,22 +42,22 @@ class MLPConfig:
             isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, np.integer)) or n <= 0
             for n in layers
         ):
-            raise ValueError("hidden_layer_sizes doit etre un tuple non vide d'entiers positifs")
+            raise ValueError("hidden_layer_sizes must be a non-empty tuple of positive integers")
         if self.activation not in ("tanh", "relu") or self.solver not in ("lbfgs", "adam"):
-            raise ValueError("activation ou solveur non pris en charge")
+            raise ValueError("unsupported activation or solver")
         for name in ("alpha", "tol", "learning_rate_init"):
             value = getattr(self, name)
             if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, float, np.integer, np.floating)) or not np.isfinite(value):
-                raise ValueError(f"{name} doit etre reel et fini")
+                raise ValueError(f"{name} must be real and finite")
             if value < 0 or (name == "learning_rate_init" and value == 0):
-                raise ValueError(f"{name} hors domaine")
+                raise ValueError(f"{name} out of range")
         for name in ("max_iter", "max_fun", "n_iter_no_change"):
             value = getattr(self, name)
             if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)) or value <= 0:
-                raise ValueError(f"{name} doit etre un entier positif")
+                raise ValueError(f"{name} must be a positive integer")
         b = self.batch_size
         if not (b == "auto" if isinstance(b, str) else isinstance(b, (int, np.integer)) and not isinstance(b, (bool, np.bool_)) and b > 0):
-            raise ValueError("batch_size doit etre 'auto' ou un entier positif")
+            raise ValueError("batch_size must be 'auto' or a positive integer")
 
 
 @dataclass
@@ -71,11 +71,11 @@ class RunResult:
     diagnostics: dict
 
     def predict(self, x):
-        """Prediction sur des coordonnees 2D ; tout usage final est distinct."""
+        """Prediction on 2D coordinates; any final use is separate."""
         values = _x(x)
         prediction = np.asarray(self.model.predict(values))
         if prediction.shape != (len(values),) or not np.isfinite(prediction).all():
-            raise ValueError("predictions invalides")
+            raise ValueError("invalid predictions")
         return prediction
 
 
@@ -90,12 +90,12 @@ class MultiSeedResult:
 def _x(x):
     a = np.asarray(x)
     if a.dtype.kind not in "iuf":
-        raise TypeError("X doit etre reel")
+        raise TypeError("X must be real")
     if a.ndim != 2 or a.shape[1] != 2 or a.shape[0] == 0:
-        raise ValueError("X doit avoir la forme (N, 2), N > 0")
+        raise ValueError("X must have shape (N, 2), N > 0")
     a = np.array(a, dtype=float, copy=True)
     if not np.isfinite(a).all():
-        raise ValueError("X doit etre fini")
+        raise ValueError("X must be finite")
     return a
 
 
@@ -103,14 +103,14 @@ def _pair(x, y):
     x = _x(x)
     y = np.asarray(y)
     if y.dtype.kind not in "iuf":
-        raise TypeError("y doit etre reel")
+        raise TypeError("y must be real")
     if y.shape != (len(x),):
-        raise ValueError("y doit avoir la forme (N,) correspondant a X")
+        raise ValueError("y must have shape (N,) matching X")
     y = np.array(y, dtype=float, copy=True)
     if not np.isfinite(y).all():
-        raise ValueError("y doit etre fini")
+        raise ValueError("y must be finite")
     if np.all(y == y[0]):
-        raise ValueError("R² indefini pour une cible constante")
+        raise ValueError("R² undefined for a constant target")
     return x, y
 
 
@@ -120,13 +120,13 @@ def _metrics(y, prediction):
 
 
 def train_mlp(config, seed, x_train, y_train, x_validation, y_validation, *, logger=None):
-    """Ajuste un modele neuf et mesure apprentissage et validation uniquement.
+    """Fit a fresh model and measure training and validation only.
 
-    Une erreur d'execution est propagee ; aucun run partiel n'est presente comme
-    une reussite. Les ConvergenceWarning sont conserves, les autres reemis.
+    A runtime error is propagated; no partial run is reported as a success.
+    ConvergenceWarnings are kept, others are re-emitted.
     """
     if not isinstance(config, MLPConfig):
-        raise TypeError("config doit etre MLPConfig")
+        raise TypeError("config must be an MLPConfig")
     seed = validate_seed(seed)
     xt, yt = _pair(x_train, y_train)
     xv, yv = _pair(x_validation, y_validation)
@@ -147,10 +147,10 @@ def train_mlp(config, seed, x_train, y_train, x_validation, y_validation, *, log
     if curve is not None:
         curve = np.asarray(curve, dtype=float)
         if curve.ndim != 1 or len(curve) != model.n_iter_ or not np.isfinite(curve).all():
-            raise ValueError("loss_curve_ incoherente avec n_iter_")
+            raise ValueError("loss_curve_ inconsistent with n_iter_")
         curve = curve.tolist()
-    # Signal descriptif, pas un diagnostic de convergence : au moins deux
-    # inversions de pente dans les dix dernieres valeurs.
+    # Descriptive signal, not a convergence diagnostic: at least two
+    # slope reversals in the last ten values.
     tail = curve[-10:] if curve is not None else None
     diffs = np.diff(tail) if tail is not None else np.array([])
     signs = np.sign(diffs[diffs != 0])
@@ -165,7 +165,7 @@ def train_mlp(config, seed, x_train, y_train, x_validation, y_validation, *, log
     result = RunResult(seed, model, model.get_params(deep=False), environment_info(), {}, {}, diagnostics)
     result.training_metrics = _metrics(yt, result.predict(xt))
     result.validation_metrics = _metrics(yv, result.predict(xv))
-    log_event(logger or logging.getLogger("c0_tp2_mlp.mlp"), "mlp_run",
+    log_event(logger or logging.getLogger("polynomial_mlp.mlp"), "mlp_run",
               level=logging.WARNING if convergence_warnings or limit else logging.INFO,
               seed=seed, parameters=result.parameters, versions=result.versions,
               diagnostics=diagnostics, training_metrics=result.training_metrics,
@@ -175,15 +175,15 @@ def train_mlp(config, seed, x_train, y_train, x_validation, y_validation, *, log
 
 def run_multi_seed(config, x_train, y_train, x_validation, y_validation, *,
                    seeds=SEEDS_MONTE_CARLO, logger=None):
-    """Runs independants ; ecart-type corrige descriptif (None si un seul run).
+    """Independent runs; descriptive corrected standard deviation (None for a single run).
 
-    Les runs avec avertissement restent dans les statistiques. Toute exception
-    interrompt le protocole et est propagee ; aucun echec n'est ignore.
+    Runs with a warning remain in the statistics. Any exception interrupts the
+    protocol and is propagated; no failure is ignored.
     """
     seeds = tuple(validate_seed(seed) for seed in seeds)
     if not seeds or len(set(seeds)) != len(seeds):
-        raise ValueError("graines non vides et distinctes requises")
-    # Copie unique pour preserver les memes donnees meme si l'appelant les modifie.
+        raise ValueError("non-empty and distinct seeds required")
+    # Single copy so that the data stay the same even if the caller modifies them.
     xt, yt = _pair(x_train, y_train)
     xv, yv = _pair(x_validation, y_validation)
     runs = [train_mlp(config, seed, xt, yt, xv, yv, logger=logger) for seed in seeds]

@@ -1,1 +1,1 @@
-"""Export des figures et des tables pour le rapport LaTeX (etape 8)."""
+"""Export of figures and tables from the experiment results."""

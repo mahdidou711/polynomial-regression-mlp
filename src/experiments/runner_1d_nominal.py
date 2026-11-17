@@ -1,23 +1,23 @@
-"""Experience 1D nominale : degres 1 a 12, EQM / EQMT, degre optimal (etape 3).
+"""Nominal 1D experiment: degrees 1 to 12, MSE / test MSE, optimal degree.
 
-Protocole (enonce 2026-2027, diapositives 9 a 13 ; CDC 5.1, avenant 7.1) :
-- apprentissage : NbEx = 20 points sur [0 ; 1,2[, bruit gaussien sigma = 0,2, graine 42 ;
-- test : 200 points sur [0 ; 1,2[, sans bruit ;
-- pour chaque degre d = 1..12, ajustement par ``LinearRegression(fit_intercept=False)`` sur
-  la matrice de Vandermonde non centree (solveur SVD, ARB-08), EQM(d) sur l'apprentissage,
-  EQMT(d) sur le test ;
-- degre optimal C* = argmin_d EQMT(d), a egalite le plus petit degre. Le degre optimal est
-  une mesure, jamais une attente.
+Protocol:
+- training: n_samples = 20 points on [0; 1.2), Gaussian noise sigma = 0.2, seed 42;
+- test: 200 points on [0; 1.2), noise-free;
+- for each degree d = 1..12, fit with ``LinearRegression(fit_intercept=False)`` on
+  the uncentred Vandermonde matrix (SVD solver), MSE(d) on the training set,
+  test MSE(d) on the test set;
+- optimal degree C* = argmin_d test MSE(d), the smallest degree on ties. The optimal
+  degree is a measurement, never an expectation.
 
-Limite statistique (EXG-RAP-AV1-02) : C* est choisi sur la base de test (protocole de
-l'enseignant) ; EQMT(C*) est donc une estimation optimiste de la generalisation, pas une
-estimation independante. Un resultat a graine unique (42) est une realisation ; la
-distribution de C* sur les 50 graines ``SEEDS_STAT_1D`` (campagne du profil nominal) est
-rapportee separement par ``run_nominal_campaign``.
+Statistical limit: C* is chosen on the test set; test MSE(C*) is therefore an
+optimistic estimate of generalisation, not an independent estimate. A single-seed
+result (42) is one realisation; the distribution of C* over the 50 seeds
+``SEEDS_STAT_1D`` (nominal-profile campaign) is reported separately by
+``run_nominal_campaign``.
 
-``run_degree_sweep`` est independant des parametres nominaux (jeux de donnees passes en
-argument) pour servir aux explorations de l'etape 4. Commande :
-``python -m src.experiments.runner_1d_nominal`` (tables et figures dans ``results/``).
+``run_degree_sweep`` is independent of the nominal parameters (data sets passed as
+arguments) so that it can serve the explorations. Command:
+``python -m src.experiments.runner_1d_nominal`` (tables and figures in ``results/``).
 """
 
 import argparse
@@ -28,50 +28,50 @@ from pathlib import Path
 
 import numpy as np
 
-from src.data import genere_base_apprentissage, genere_base_test
+from src.data import generate_training_set, generate_test_set
 from src.models import compare_solvers, predict, solve_sklearn_reference, vandermonde
 from src.utils.logger import environment_info, get_logger, log_event
 from src.utils.metrics import getMSE
 from src.utils.seeding import SEED_POLYNOMIAL, SEEDS_STAT_1D
 
-DEGREES = tuple(range(1, 13))  # degres de l'enonce : 1 a 12
-N_TEST_DENSE = 1000  # points de la grille dense de trace des courbes (plots_1d)
+DEGREES = tuple(range(1, 13))  # degrees of the study: 1 to 12
+N_TEST_DENSE = 1000  # points of the dense grid used to draw the curves (plots_1d)
 
-_logger = logging.getLogger("c0_tp2_mlp.runner_1d_nominal")
+_logger = logging.getLogger("polynomial_mlp.runner_1d_nominal")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIGURES_DIR = PROJECT_ROOT / "results" / "figures" / "polynomial"
 TABLES_DIR = PROJECT_ROOT / "results" / "tables"
 
 
-def optimal_degree(degrees, eqmt) -> int:
-    """C* = argmin EQMT ; le plus petit degre en cas d'egalite exacte (``np.argmin``)."""
+def optimal_degree(degrees, test_mse) -> int:
+    """C* = argmin test MSE; the smallest degree on an exact tie (``np.argmin``)."""
     degrees = np.asarray(degrees)
-    eqmt = np.asarray(eqmt, dtype=float)
-    if degrees.shape != eqmt.shape or degrees.ndim != 1 or degrees.size == 0:
+    test_mse = np.asarray(test_mse, dtype=float)
+    if degrees.shape != test_mse.shape or degrees.ndim != 1 or degrees.size == 0:
         raise ValueError(
-            f"degres et EQMT : vecteurs 1D de meme longueur attendus, "
-            f"{degrees.shape} / {eqmt.shape}"
+            f"degrees and test MSE: 1D vectors of the same length expected, "
+            f"{degrees.shape} / {test_mse.shape}"
         )
-    if not np.isfinite(eqmt).all():
-        raise ValueError("EQMT : valeurs non finies")
-    return int(degrees[int(np.argmin(eqmt))])
+    if not np.isfinite(test_mse).all():
+        raise ValueError("test MSE: non-finite values")
+    return int(degrees[int(np.argmin(test_mse))])
 
 
 @dataclass(frozen=True)
 class SweepResult:
-    """Resultat d'un balayage de degres sur un couple (apprentissage, test).
+    """Result of a degree sweep on a (training, test) pair.
 
-    Les diagnostics (``rank`` ... ``rel_error_*``) sont des tableaux de longueur
-    ``len(degrees)`` si le balayage les a calcules (``diagnose=True``), sinon ``None``.
-    ``rel_error_normal`` / ``rel_error_qr`` : ecart relatif (norme infinie, avenant 7.10) a
-    la SVD, ``nan`` si la methode est non applicable ; ``regime`` : 'strict' ou
-    'diagnostic' (ARB-08).
+    The diagnostics (``rank`` ... ``rel_error_*``) are arrays of length
+    ``len(degrees)`` if the sweep computed them (``diagnose=True``), otherwise ``None``.
+    ``rel_error_normal`` / ``rel_error_qr``: relative gap (infinity norm) to
+    the SVD, ``nan`` if the method is not applicable; ``regime``: 'strict' or
+    'diagnostic'.
     """
 
     degrees: np.ndarray
-    eqm_train: np.ndarray
-    eqm_test: np.ndarray
+    mse_train: np.ndarray
+    mse_test: np.ndarray
     coefs: tuple
     y_pred_test: np.ndarray  # (n_degrees, n_test)
     x_train: np.ndarray
@@ -88,7 +88,7 @@ class SweepResult:
 
     @property
     def optimal_degree(self) -> int:
-        return optimal_degree(self.degrees, self.eqm_test)
+        return optimal_degree(self.degrees, self.mse_test)
 
     def index_of(self, degree: int) -> int:
         return int(np.flatnonzero(self.degrees == degree)[0])
@@ -96,12 +96,12 @@ class SweepResult:
 
 def run_degree_sweep(x_train, y_train, x_test, y_test, degrees=DEGREES, diagnose=True,
                      seed=None) -> SweepResult:
-    """Ajuste chaque degre par ``LinearRegression(fit_intercept=False)`` et mesure EQM / EQMT.
+    """Fit each degree with ``LinearRegression(fit_intercept=False)`` and measure MSE / test MSE.
 
-    ``diagnose=True`` : appelle ``compare_solvers`` (rang, kappa, regime, ecarts des
-    equations normales et de QR a la SVD ; evenement journalise) et prend les
-    coefficients de la solution scikit-learn qu'il renvoie. ``diagnose=False`` : ajuste
-    directement par ``solve_sklearn_reference`` (campagnes, sans diagnostic repete).
+    ``diagnose=True``: calls ``compare_solvers`` (rank, kappa, regime, gaps of the
+    normal equations and of QR to the SVD; logged event) and takes the
+    coefficients of the scikit-learn solution it returns. ``diagnose=False``: fits
+    directly with ``solve_sklearn_reference`` (campaigns, no repeated diagnostics).
     """
     degrees = np.asarray(list(degrees), dtype=int)
     x_tr = np.asarray(x_train, dtype=float)
@@ -109,7 +109,7 @@ def run_degree_sweep(x_train, y_train, x_test, y_test, degrees=DEGREES, diagnose
     y_tr = np.asarray(y_train, dtype=float)
     y_te = np.asarray(y_test, dtype=float)
 
-    coefs, eqm, eqmt, preds = [], [], [], []
+    coefs, mse, test_mse, preds = [], [], [], []
     diag = {k: [] for k in ("rank", "kappa_h", "kappa_hth", "regime", "normal", "qr")}
     for d in degrees:
         d = int(d)
@@ -128,8 +128,8 @@ def run_degree_sweep(x_train, y_train, x_test, y_test, degrees=DEGREES, diagnose
         y_hat_train = predict(coef, x_tr)
         y_hat_test = predict(coef, x_te)
         coefs.append(coef)
-        eqm.append(getMSE(y_tr, y_hat_train))
-        eqmt.append(getMSE(y_te, y_hat_test))
+        mse.append(getMSE(y_tr, y_hat_train))
+        test_mse.append(getMSE(y_te, y_hat_test))
         preds.append(y_hat_test)
 
     extra = {}
@@ -144,8 +144,8 @@ def run_degree_sweep(x_train, y_train, x_test, y_test, degrees=DEGREES, diagnose
         )
     return SweepResult(
         degrees=degrees,
-        eqm_train=np.array(eqm),
-        eqm_test=np.array(eqmt),
+        mse_train=np.array(mse),
+        mse_test=np.array(test_mse),
         coefs=tuple(coefs),
         y_pred_test=np.array(preds),
         x_train=x_tr,
@@ -158,41 +158,41 @@ def run_degree_sweep(x_train, y_train, x_test, y_test, degrees=DEGREES, diagnose
 
 
 def run_nominal(seed: int = SEED_POLYNOMIAL, degrees=DEGREES) -> SweepResult:
-    """Experience nominale (apprentissage 20 points, sigma = 0,2 ; test 200 points)."""
-    x_train, y_train = genere_base_apprentissage(seed=seed)
-    x_test, y_test = genere_base_test()
+    """Nominal experiment (training 20 points, sigma = 0.2; test 200 points)."""
+    x_train, y_train = generate_training_set(seed=seed)
+    x_test, y_test = generate_test_set()
     result = run_degree_sweep(x_train, y_train, x_test, y_test, degrees, diagnose=True, seed=seed)
     log_event(
         _logger,
         "nominal_done",
         seed=seed,
         optimal_degree=result.optimal_degree,
-        eqmt_min=float(result.eqm_test.min()),
+        test_mse_min=float(result.mse_test.min()),
     )
     return result
 
 
 @dataclass(frozen=True)
 class CampaignResult:
-    """Campagne sur plusieurs graines de bruit (meme configuration nominale).
+    """Campaign over several noise seeds (same nominal configuration).
 
-    ``eqm_train`` et ``eqm_test`` : (n_seeds, n_degrees). ``optimal_degrees`` : C* par
-    graine. Les statistiques sont descriptives, calculees sur ces realisations.
+    ``mse_train`` and ``mse_test``: (n_seeds, n_degrees). ``optimal_degrees``: C* per
+    seed. The statistics are descriptive, computed over these realisations.
     """
 
     seeds: tuple
     degrees: np.ndarray
-    eqm_train: np.ndarray
-    eqm_test: np.ndarray
+    mse_train: np.ndarray
+    mse_test: np.ndarray
     optimal_degrees: np.ndarray
 
     def cstar_counts(self) -> dict:
-        """Comptage de C* par degre (tous les degres, y compris ceux jamais optimaux)."""
+        """Count of C* per degree (all degrees, including those never optimal)."""
         return {int(d): int(np.sum(self.optimal_degrees == d)) for d in self.degrees}
 
     @property
     def cstar_mode(self) -> int:
-        """Mode de C* ; a egalite le plus petit degre."""
+        """Mode of C*; the smallest degree on ties."""
         counts = self.cstar_counts()
         return min(counts, key=lambda d: (-counts[d], d))
 
@@ -201,31 +201,31 @@ class CampaignResult:
         return float(np.median(self.optimal_degrees))
 
     def summary(self, which: str) -> dict:
-        """Moyenne, mediane, quartiles par degre de l'EQM ('train') ou de l'EQMT ('test')."""
-        data = {"train": self.eqm_train, "test": self.eqm_test}[which]
+        """Mean, median, quartiles per degree of the MSE ('train') or of the test MSE ('test')."""
+        data = {"train": self.mse_train, "test": self.mse_test}[which]
         q1, med, q3 = np.percentile(data, [25, 50, 75], axis=0)
         return {"mean": data.mean(axis=0), "median": med, "q1": q1, "q3": q3,
                 "iqr": q3 - q1}
 
 
 def run_nominal_campaign(seeds=SEEDS_STAT_1D, degrees=DEGREES) -> CampaignResult:
-    """Repete l'experience nominale pour chaque graine de bruit de ``seeds``.
+    """Repeat the nominal experiment for each noise seed of ``seeds``.
 
-    Seule la graine de bruit change : la grille d'apprentissage et la base de test sont
-    identiques d'une graine a l'autre (diagnostics numeriques inchangeables, donc non
-    recalcules ici).
+    Only the noise seed changes: the training grid and the test set are
+    identical from one seed to the next (numerical diagnostics unchanged, hence not
+    recomputed here).
     """
     seeds = tuple(int(s) for s in seeds)
-    x_test, y_test = genere_base_test()
-    eqm, eqmt, cstar = [], [], []
+    x_test, y_test = generate_test_set()
+    mse, test_mse, cstar = [], [], []
     for s in seeds:
-        x_train, y_train = genere_base_apprentissage(seed=s)
+        x_train, y_train = generate_training_set(seed=s)
         r = run_degree_sweep(x_train, y_train, x_test, y_test, degrees, diagnose=False, seed=s)
-        eqm.append(r.eqm_train)
-        eqmt.append(r.eqm_test)
+        mse.append(r.mse_train)
+        test_mse.append(r.mse_test)
         cstar.append(r.optimal_degree)
-    result = CampaignResult(seeds, np.asarray(list(degrees), dtype=int), np.array(eqm),
-                            np.array(eqmt), np.array(cstar))
+    result = CampaignResult(seeds, np.asarray(list(degrees), dtype=int), np.array(mse),
+                            np.array(test_mse), np.array(cstar))
     log_event(
         _logger,
         "campaign_done",
@@ -253,39 +253,39 @@ def _write_csv(path, header, rows) -> Path:
 
 
 def write_nominal_table(result: SweepResult, path) -> Path:
-    """Table par degre : EQM, EQMT, rang, kappa, regime, ecarts des solveurs, degre optimal.
+    """Per-degree table: MSE, test MSE, rank, kappa, regime, solver gaps, optimal degree.
 
-    Les valeurs sont ecrites telles que calculees (aucun plancher d'affichage).
+    Values are written as computed (no display floor).
     """
     star = result.optimal_degree
     rows = [
-        (int(d), result.eqm_train[i], result.eqm_test[i], int(result.rank[i]),
+        (int(d), result.mse_train[i], result.mse_test[i], int(result.rank[i]),
          result.kappa_h[i], result.kappa_hth[i], result.regime[i],
          result.rel_error_normal[i], result.rel_error_qr[i], int(d) == star)
         for i, d in enumerate(result.degrees)
     ]
-    header = ("degree", "eqm_train", "eqm_test", "rank", "kappa_h", "kappa_hth", "regime",
+    header = ("degree", "mse_train", "mse_test", "rank", "kappa_h", "kappa_hth", "regime",
               "rel_error_normal_vs_svd", "rel_error_qr_vs_svd", "is_optimal")
     return _write_csv(path, header, rows)
 
 
 def write_campaign_tables(result: CampaignResult, path_stats, path_counts) -> tuple[Path, Path]:
-    """Deux tables : statistiques par degre et comptage de C*."""
+    """Two tables: statistics per degree and count of C*."""
     train, test = result.summary("train"), result.summary("test")
     rows = [
         (int(d), train["mean"][i], train["median"][i], train["q1"][i], train["q3"][i],
          test["mean"][i], test["median"][i], test["q1"][i], test["q3"][i])
         for i, d in enumerate(result.degrees)
     ]
-    header = ("degree", "eqm_mean", "eqm_median", "eqm_q1", "eqm_q3",
-              "eqmt_mean", "eqmt_median", "eqmt_q1", "eqmt_q3")
+    header = ("degree", "mse_mean", "mse_median", "mse_q1", "mse_q3",
+              "test_mse_mean", "test_mse_median", "test_mse_q1", "test_mse_q3")
     a = _write_csv(path_stats, header, rows)
     b = _write_csv(path_counts, ("degree", "count_cstar"), sorted(result.cstar_counts().items()))
     return a, b
 
 
 # --------------------------------------------------------------------------
-# Point d'entree
+# Entry point
 # --------------------------------------------------------------------------
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -294,17 +294,17 @@ def main(argv=None) -> int:
     parser.add_argument("--log-file", type=Path, default=None, help="journal JSON Lines")
     args = parser.parse_args(argv)
 
-    from src.visualization import plots_1d  # import tardif : le calcul ne depend pas du trace
+    from src.visualization import plots_1d  # late import: the computation does not depend on plotting
 
-    lg = get_logger("c0_tp2_mlp", log_file=args.log_file)
+    lg = get_logger("polynomial_mlp", log_file=args.log_file)
     log_event(lg, "run_start", seed=SEED_POLYNOMIAL, n_stat_seeds=len(SEEDS_STAT_1D),
               **environment_info())
     try:
         nominal = run_nominal()
         campaign = run_nominal_campaign()
         write_nominal_table(nominal, args.tables_dir / "nominal_1d_seed42.csv")
-        write_campaign_tables(campaign, args.tables_dir / "nominal_1d_stats_50_graines.csv",
-                              args.tables_dir / "nominal_1d_cstar_50_graines.csv")
+        write_campaign_tables(campaign, args.tables_dir / "nominal_1d_stats_50_seeds.csv",
+                              args.tables_dir / "nominal_1d_cstar_50_seeds.csv")
         paths = plots_1d.save_nominal_figures(nominal, campaign, args.figures_dir)
     except Exception:
         log_event(lg, "run_failed", level=logging.ERROR, exc_info=True)
@@ -312,7 +312,7 @@ def main(argv=None) -> int:
     else:
         log_event(lg, "run_done", optimal_degree=nominal.optimal_degree,
                   figures=[str(p) for p in paths])
-    finally:  # ferme le fichier de journal (aucun descripteur laisse ouvert)
+    finally:  # closes the log file (no descriptor left open)
         for handler in list(lg.handlers):
             lg.removeHandler(handler)
             handler.close()

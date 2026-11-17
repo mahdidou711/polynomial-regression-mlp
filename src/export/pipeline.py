@@ -1,18 +1,19 @@
-"""Production et comparaison des artefacts exportes (etape 8).
+"""Production and comparison of the exported artefacts (CSV/JSON tables, figures, manifests).
 
-``produce`` ecrit tous les artefacts dans une disposition (``Layout``) donnee, jamais ailleurs :
+``produce`` writes all the artefacts into a given layout (``Layout``), never elsewhere:
 
-* tables 1D : recalcul par les runners 1D (6 s + 9 s, deterministes) ;
-* tables MLP 2D des lots B et C : reconstruction depuis le cache de 190 runs, **sans aucun
-  entrainement** (un controle prealable du cache refuse de continuer s'il est incomplet) ;
-* figures MLP issues des campagnes : depuis ce meme cache ;
-* figures dependant d'un reseau (``needs_models``) : uniquement avec ``with_models=True``,
-  par la reconstruction verifiee (empreinte des poids) des trois reseaux des figures ; sinon
-  les fichiers existants sont reportes tels quels ;
-* tables de l'evaluation finale : reportees telles quelles (protegees par le gel, DEC-20).
+* 1D tables: recomputed by the 1D runners (6 s + 9 s, deterministic);
+* 2D MLP tables of stages B and C: rebuilt from the cache of 190 runs, **without any
+  training** (a prior check of the cache refuses to continue if it is incomplete);
+* MLP figures coming from the campaigns: from the same cache;
+* figures that depend on a network (``needs_models``): only with ``with_models=True``,
+  through the verified rebuild (weight fingerprint) of the three figure networks; otherwise
+  the existing files are carried over unchanged;
+* final evaluation tables: carried over unchanged from the reference (protected by the
+  freeze); when the reference has none, they are computed from the cache.
 
-``compare`` compare deux dispositions octet a octet. ``export`` et ``verify`` (voir ``main.py``)
-sont des compositions de ``produce`` dans un repertoire temporaire.
+``compare`` compares two layouts byte for byte. ``export`` and ``verify`` (see ``main.py``)
+are compositions of ``produce`` in a temporary directory.
 """
 
 import contextlib
@@ -27,12 +28,12 @@ from src.export.layout import Layout, REPO
 
 
 class ExportError(RuntimeError):
-    """Pre-condition non satisfaite ou derive detectee : rien n'est ecrit dans le depot."""
+    """Unmet precondition or drift detected: nothing is written to the repository."""
 
 
 @contextlib.contextmanager
 def quiet():
-    """Silence les journaux et les impressions des runners appeles en processus."""
+    """Silence the logs and prints of the runners called in-process."""
     previous = logging.root.manager.disable
     logging.disable(logging.CRITICAL)
     try:
@@ -48,7 +49,7 @@ def _copy(src: Path, dst: Path) -> None:
 
 
 def carry_over(out: Layout, reference: Layout, names, folder=None) -> list[str]:
-    """Copie depuis la reference les fichiers non regeneres ; renvoie ceux effectivement copies."""
+    """Copy from the reference the files that are not regenerated; return those actually copied."""
     copied = []
     for name in names:
         source = (reference.tables if folder is None else folder(reference)) / name
@@ -69,14 +70,14 @@ def regenerate_1d(out: Layout) -> None:
 
 def _mlp_context():
     from src.experiments import runner_2d_nominal as nom
-    threads = nom.check_threads()  # RuntimeError explicite si plus d'un thread BLAS (D7-04)
-    xt, yt, xv, yv = nom.load_official_data()
+    threads = nom.check_threads()  # explicit RuntimeError if more than one BLAS thread
+    xt, yt, xv, yv = nom.load_input_data()
     fingerprint = nom.data_fingerprint(xt, yt, xv, yv)
     return nom, fingerprint, nom.environment_identity(threads)
 
 
 def require_complete_cache(store, h_star=None) -> dict:
-    """Controle en lecture seule : le cache couvre tout le plan ; sinon ``ExportError``."""
+    """Read-only check: the cache covers the whole plan; otherwise ``ExportError``."""
     from src.experiments import runner_2d_parametric as par
     nom, fingerprint, environment = _mlp_context()
     plan = nom.nominal_plan() if h_star is None else par.full_plan(h_star)
@@ -84,18 +85,18 @@ def require_complete_cache(store, h_star=None) -> dict:
     allowed = nom.contractual_keys(fingerprint, environment) if h_star is None else keys
     report = nom.verify_store(store, keys, allowed)
     if not report["ok"]:
-        raise ExportError("cache des runs MLP incomplet ou non conforme (aucun entrainement ne "
-                          f"sera lance) : {report['anomalies'][:3]} ; manquants : "
+        raise ExportError("MLP run cache incomplete or non-conforming (no training "
+                          f"will be launched): {report['anomalies'][:3]} ; missing: "
                           f"{len(report['missing'])}")
     return report
 
 
 def regenerate_mlp_tables(out: Layout, store=None, train: bool = False) -> int:
-    """Tables des lots B et C et figures de campagne.
+    """Tables of stages B and C and campaign figures.
 
-    ``train=False`` (defaut) : depuis le cache, sans aucun entrainement (un cache incomplet
-    leve ``ExportError``). ``train=True`` : reproduction integrale, reservee a ``produce_full`` ;
-    ``store`` doit alors etre un depot isole (jamais le depot nominal versionne).
+    ``train=False`` (default): from the cache, without any training (an incomplete cache
+    raises ``ExportError``). ``train=True``: full reproduction, reserved for ``produce_full``;
+    ``store`` must then be an isolated store (never the nominal versioned store).
     """
     from src.experiments import runner_2d_nominal as nom
     from src.experiments import runner_2d_parametric as par
@@ -103,19 +104,19 @@ def regenerate_mlp_tables(out: Layout, store=None, train: bool = False) -> int:
     store = Path(store or nom.NOMINAL_STORE)
     if train:
         if nom.is_nominal_store(store):
-            raise ExportError("reproduction integrale refusee dans le depot nominal versionne")
+            raise ExportError("full reproduction refused in the nominal versioned store")
     else:
         require_complete_cache(store)
     argv = ["--store", str(store), "--tables-dir", str(out.tables)]
     with quiet():
         if nom.main(argv) != 0:
-            raise ExportError("lot B : echec")
+            raise ExportError("stage B: failure")
     h_star = build_hstar(out)
     if not train:
         require_complete_cache(store, h_star)
     with quiet():
         if par.main(argv) != 0:
-            raise ExportError("lot C : echec")
+            raise ExportError("stage C: failure")
         _, fingerprint, environment = _mlp_context()
         selection, collected = par.compute_selection(store, fingerprint, environment)
         plots_2d.save_campaign_figures(collected, selection["h_star"]["h_star"], out.fig_mlp)
@@ -128,7 +129,7 @@ def build_hstar(out: Layout) -> int:
 
 
 def render_model_figures(out: Layout, store=None) -> list:
-    """Figures dependant des reseaux : reconstruction verifiee (empreinte des poids) de 3 reseaux."""
+    """Figures that depend on networks: verified rebuild (weight fingerprint) of 3 networks."""
     from src.experiments import final_evaluation_2d
     from src.experiments.runner_2d_nominal import NOMINAL_STORE
     from src.visualization import plots_2d
@@ -137,37 +138,56 @@ def render_model_figures(out: Layout, store=None) -> list:
         return plots_2d.save_mlp_figures(inputs, out.fig_mlp)
 
 
+def compute_final_evaluation(out: Layout, store=None) -> None:
+    """Final evaluation from the cache, when no frozen reference is available (bootstrap).
+
+    Same sequence as ``produce_full``: the recomputed selection freeze is verified, the models
+    are retrained and verified by the fingerprint of their weights, then only the test set is read.
+    """
+    from src.experiments import final_evaluation_2d
+    from src.experiments.runner_2d_nominal import NOMINAL_STORE
+    with quiet():
+        status = final_evaluation_2d.main(["--store", str(store or NOMINAL_STORE),
+                                           "--tables-dir", str(out.tables)])
+    if status != 0:
+        raise ExportError("final evaluation: failure")
+
+
 def model_figure_names() -> list[tuple[str, str]]:
     return [(f.folder, name) for f in registry.FIGURES if f.needs_models for name in f.files()]
 
 
 def produce(out: Layout, reference: Layout = REPO, with_models: bool = False, store=None) -> dict:
-    """Ecrit tous les artefacts dans ``out`` ; ``reference`` fournit ce qui n'est pas regenere."""
+    """Write all the artefacts into ``out``; ``reference`` provides what is not regenerated."""
     info = {"carried_tables": carry_over(out, reference, registry.SOURCES_CARRIED)}
+    if info["carried_tables"] and len(info["carried_tables"]) < len(registry.SOURCES_CARRIED):
+        raise ExportError("incomplete final evaluation tables in the reference: "
+                          f"{sorted(set(registry.SOURCES_CARRIED) - set(info['carried_tables']))}")
     regenerate_1d(out)
     info["h_star"] = regenerate_mlp_tables(out, store)
+    if not info["carried_tables"]:  # bootstrap: no reference, final evaluation computed
+        compute_final_evaluation(out, store)
     if with_models:
         render_model_figures(out, store)
-        info["model_figures"] = "regenerees (3 reseaux reconstruits, empreintes verifiees)"
+        info["model_figures"] = "regenerated (3 networks rebuilt, fingerprints verified)"
     else:
         for folder, name in model_figure_names():
             source = reference.figure_dir(folder) / name
             if source.exists():
                 _copy(source, out.figure_dir(folder) / name)
-        info["model_figures"] = "reportees depuis la reference (non regenerees)"
+        info["model_figures"] = "carried over from the reference (not regenerated)"
     src = registry.Sources(out.tables)
     build.build_tables(out, src)
     build.build_figures_manifest(out, src)
-    build.build_preview(out)
     build.build_manifest(out, src)
     return info
 
 
 # --------------------------------------------------------------------------
-# Reproduction integrale (explicite, isolee)
+# Full reproduction (explicit, isolated)
 # --------------------------------------------------------------------------
-# Les enregistrements, tables et gels contiennent des durees d'execution : elles ne se
-# reproduisent pas. Seuls les champs scientifiques sont compares.
+# Records, tables and freezes contain run durations: they are not
+# reproducible. Only the scientific fields are compared.
 TIMING_PREFIX = "elapsed"
 VOLATILE_CSV = ("mlp_2d_runs.csv", "mlp_2d_config_stats.csv", "mlp_2d_adam_grid.csv",
                 "mlp_2d_solver_comparison.csv")
@@ -176,7 +196,7 @@ HASH_DERIVED = ("data/processed/export_manifest.json", "results/tables/export_su
 
 
 def record_digest(record: dict) -> dict:
-    """Contenu scientifique d'un enregistrement : poids, metriques, convergence ; sans la duree."""
+    """Scientific content of a record: weights, metrics, convergence; without the duration."""
     diag = {k: v for k, v in record["diagnostics"].items() if not k.startswith(TIMING_PREFIX)}
     return {"run_key": record["run_key"], "weights_sha256": record["weights_sha256"],
             "training_metrics": record["training_metrics"],
@@ -185,20 +205,20 @@ def record_digest(record: dict) -> dict:
 
 
 def compare_stores(store_a, store_b) -> list[str]:
-    """Differences scientifiques entre deux depots de runs (lecture seule)."""
+    """Scientific differences between two run stores (read-only)."""
     from src.experiments.runner_2d_nominal import load_record
     files_a = {p.name for p in Path(store_a).glob("*.json")}
     files_b = {p.name for p in Path(store_b).glob("*.json")}
-    issues = [f"absent du premier depot : {n}" for n in sorted(files_b - files_a)]
-    issues += [f"absent du second depot : {n}" for n in sorted(files_a - files_b)]
+    issues = [f"missing from the first store: {n}" for n in sorted(files_b - files_a)]
+    issues += [f"missing from the second store: {n}" for n in sorted(files_a - files_b)]
     for name in sorted(files_a & files_b):
         if record_digest(load_record(Path(store_a) / name)) != record_digest(load_record(Path(store_b) / name)):
-            issues.append(f"contenu scientifique different : {name}")
+            issues.append(f"different scientific content: {name}")
     return issues
 
 
 def scientific_selection(selection: dict) -> dict:
-    """Gel sans ses empreintes d'enregistrements (qui incluent les durees)."""
+    """Freeze without its record fingerprints (which include the durations)."""
     body = {k: v for k, v in selection.items() if k not in ("payload_sha256", "records_digest")}
     body["records"] = [{"run_key": r["run_key"]} for r in selection["records"]]
     return json.loads(json.dumps(body, sort_keys=True))
@@ -210,7 +230,7 @@ def scientific_evaluation(evaluation: dict) -> dict:
 
 
 def _csv_content(path: Path) -> list[dict]:
-    from src.export.latex_tables import read_csv
+    from src.export.csv_io import read_csv
     return [{k: v for k, v in row.items() if not k.startswith(TIMING_PREFIX)}
             for row in read_csv(path)]
 
@@ -220,11 +240,11 @@ def _json(path: Path) -> dict:
 
 
 def compare_scientific(a: Layout, b: Layout) -> dict:
-    """Comme ``compare`` mais insensible aux durees et aux empreintes qui en dependent.
+    """Like ``compare`` but insensitive to durations and to the fingerprints that depend on them.
 
-    Octet a octet : tout sauf les fichiers listes ci-dessus ; contenu scientifique pour ces
-    fichiers ; manifeste et recapitulatif : memes chemins et memes empreintes pour les
-    artefacts non volatils.
+    Byte for byte: everything except the files listed above; scientific content for these
+    files; manifest and summary: same paths and same fingerprints for the
+    non-volatile artefacts.
     """
     fa, fb = tracked_files(a), tracked_files(b)
     keys = set(fa) | set(fb)
@@ -245,7 +265,7 @@ def compare_scientific(a: Layout, b: Layout) -> dict:
             same = pa.read_bytes() == pb.read_bytes()
         if not same:
             different.append(k)
-    for k in HASH_DERIVED:  # empreintes des artefacts non volatils
+    for k in HASH_DERIVED:  # fingerprints of the non-volatile artefacts
         if k in fa and k in fb:
             ra = {x["path"]: x["sha256"] for x in _artifacts(fa[k]) if x["path"] not in volatile}
             rb = {x["path"]: x["sha256"] for x in _artifacts(fb[k]) if x["path"] not in volatile}
@@ -258,18 +278,18 @@ def compare_scientific(a: Layout, b: Layout) -> dict:
 
 def _artifacts(path: Path) -> list[dict]:
     if path.suffix == ".json":
-        return _json(path)["artefacts"]
-    from src.export.latex_tables import read_csv
+        return _json(path)["artifacts"]
+    from src.export.csv_io import read_csv
     return read_csv(path)
 
 
 def produce_full(out: Layout, reference: Layout = REPO) -> dict:
-    """Reconstruit tout le pipeline scientifique dans ``out`` : runners 1D, lots B et C avec
-    entrainement dans un depot isole ``out/store``, evaluation finale, figures, artefacts.
+    """Rebuild the whole scientific pipeline in ``out``: 1D runners, stages B and C with
+    training in an isolated store ``out/store``, final evaluation, figures, artefacts.
 
-    Garde-fou DEC-20 / R3 : la base de test n'est lue qu'apres avoir constate que les 190 runs
-    reentraines et le gel de selection recalcule sont scientifiquement identiques a ceux de la
-    reference validee (point de controle P2). Sinon ``ExportError`` : le test n'est pas lu.
+    Safeguard: the test set is read only after checking that the 190 retrained runs
+    and the recomputed selection freeze are scientifically identical to those of the
+    reference. Otherwise ``ExportError``: the test set is not read.
     """
     from src.experiments import final_evaluation_2d
     from src.experiments.runner_2d_nominal import NOMINAL_STORE
@@ -279,36 +299,35 @@ def produce_full(out: Layout, reference: Layout = REPO) -> dict:
     issues = compare_stores(store, NOMINAL_STORE)
     ref_freeze = _json(reference.tables / "mlp_2d_selection.json")
     if scientific_selection(_json(out.tables / "mlp_2d_selection.json")) != scientific_selection(ref_freeze):
-        issues.append("gel de selection reconstruit different du gel valide")
+        issues.append("rebuilt selection freeze differs from the reference freeze")
     if issues:
-        raise ExportError("reproduction divergente avant toute lecture du test : "
+        raise ExportError("diverging reproduction before any read of the test set: "
                           + "; ".join(issues[:3]) + (f" (+{len(issues) - 3})" if len(issues) > 3 else ""))
     info["runs_compared"] = len(list(store.glob("*.json")))
     with quiet():
         if final_evaluation_2d.main(["--store", str(store), "--tables-dir", str(out.tables)]) != 0:
-            raise ExportError("evaluation finale : echec")
+            raise ExportError("final evaluation: failure")
     render_model_figures(out, store)
-    info["model_figures"] = "regenerees (reseaux reconstruits du depot isole)"
+    info["model_figures"] = "regenerated (networks rebuilt from the isolated store)"
     src = registry.Sources(out.tables)
     build.build_tables(out, src)
     build.build_figures_manifest(out, src)
-    build.build_preview(out)
     build.build_manifest(out, src)
     return info
 
 
 # --------------------------------------------------------------------------
-# Comparaison et synchronisation
+# Comparison and synchronisation
 # --------------------------------------------------------------------------
 def tracked_files(layout: Layout) -> dict[str, Path]:
-    """Fichiers exportes d'une disposition, par chemin relatif (hors .gitkeep)."""
+    """Exported files of a layout, by relative path (excluding .gitkeep)."""
     files = {}
     for directory in (layout.tables, layout.fig_poly, layout.fig_mlp):
         if directory.exists():
             for path in directory.iterdir():
                 if path.is_file() and path.name != ".gitkeep":
                     files[path.relative_to(layout.root).as_posix()] = path
-    for path in (layout.figures_manifest, layout.preview, layout.manifest):
+    for path in (layout.figures_manifest, layout.manifest):
         if path.exists():
             files[path.relative_to(layout.root).as_posix()] = path
     return files
@@ -320,7 +339,7 @@ def source_paths() -> set[str]:
 
 
 def compare(a: Layout, b: Layout, only=None, exclude=()) -> dict:
-    """Differences entre deux dispositions : absents de ``a``, absents de ``b``, contenus differents."""
+    """Differences between two layouts: missing from ``a``, missing from ``b``, different contents."""
     fa, fb = tracked_files(a), tracked_files(b)
     keys = set(fa) | set(fb)
     if only is not None:
@@ -337,7 +356,7 @@ def is_clean(diff: dict) -> bool:
 
 
 def sync(src: Layout, dst: Layout, exclude=()) -> list[str]:
-    """Copie vers ``dst`` les fichiers de ``src`` absents ou differents ; renvoie les chemins."""
+    """Copy to ``dst`` the files of ``src`` that are missing or different; return the paths."""
     changed = []
     for rel, path in sorted(tracked_files(src).items()):
         if rel in exclude:

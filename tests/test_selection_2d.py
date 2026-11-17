@@ -1,4 +1,4 @@
-"""Etape 7, lot A : classement, regles d'egalite, gel, etancheite et evaluation finale."""
+"""Ranking, tie rules, freeze, watertightness and final evaluation."""
 import ast
 import json
 import logging
@@ -23,25 +23,25 @@ def _stats(mean, n=10):
 
 
 def _collected(entries):
-    """entries : [(config, mean)] dans l'ordre du plan."""
+    """entries: [(config, mean)] in plan order."""
     return {nom.config_id(c): {"config": c, "roles": ["T"], "records": [], "stats": _stats(m)}
             for c, m in entries}
 
 
 @pytest.fixture(scope="module")
 def campaign(tmp_path_factory):
-    """Campagne complete (190 runs) a budget court, sans aucun acces au test."""
+    """Complete campaign (190 runs) with a short budget, without any access to the test set."""
     from threadpoolctl import threadpool_limits
-    base = tmp_path_factory.mktemp("campagne")
+    base = tmp_path_factory.mktemp("campaign")
     train, val, test = synthetic()
     calls = []
 
     def forbidden(*a, **k):
         calls.append(1)
-        raise AssertionError("base de test lue pendant la selection")
+        raise AssertionError("test set read during the selection")
 
     mp = pytest.MonkeyPatch()
-    mp.setattr(generator_2d, "genere_base_test_2d", forbidden)
+    mp.setattr(generator_2d, "generate_test_set_2d", forbidden)
     mp.setattr(generator_2d, "prepare_data_2d", forbidden)
     try:
         with threadpool_limits(limits=1):
@@ -60,7 +60,7 @@ def campaign(tmp_path_factory):
     finally:
         mp.undo()
     return {"store": store, "tables": tables, "train": train, "val": val, "test": test,
-            "selection": selection, "collected": collected, "gel": gel, "digest": digest,
+            "selection": selection, "collected": collected, "freeze": gel, "digest": digest,
             "plan": plan, "fp": fp, "env": env, "test_calls": calls}
 
 
@@ -71,13 +71,13 @@ def _read_csv(path):
 
 
 def evaluate(c, tables=None, load_test=None):
-    return fin.evaluate_final(c["gel"], c["store"], c["train"], c["val"],
+    return fin.evaluate_final(c["freeze"], c["store"], c["train"], c["val"],
                               load_test or (lambda: c["test"]),
                               tables_dir=tables or c["tables"], overrides=FAST)
 
 
-# ---------------------------------------------------------------- classement et egalites
-def test_h_star_est_l_argmin_de_la_moyenne_de_validation(campaign):
+# ---------------------------------------------------------------- ranking and ties
+def test_h_star_is_the_argmin_of_the_mean_validation(campaign):
     c = campaign
     means = {}
     for e in nom.nominal_plan(FAST):
@@ -89,47 +89,47 @@ def test_h_star_est_l_argmin_de_la_moyenne_de_validation(campaign):
     assert [r["mean_validation_mse"] for r in ranking] == sorted(r["mean_validation_mse"] for r in ranking)
 
 
-def test_egalite_hstar_plus_petite_largeur():
+def test_tie_hstar_smallest_width():
     stats = {200: _stats(0.5), 5: _stats(0.5), 50: _stats(0.5), 20: _stats(0.9)}
     r = nom.select_width(stats)
     assert r["h_star"] == 5 and r["tie_applied"]  # pas 200
-    assert nom.select_width({5: _stats(0.4), 10: _stats(0.3)})["h_star"] == 10  # argmin, non argmax
+    assert nom.select_width({5: _stats(0.4), 10: _stats(0.3)})["h_star"] == 10  # argmin, not argmax
     assert not nom.select_width({5: _stats(0.4), 10: _stats(0.3)})["tie_applied"]
 
 
-def test_egalite_adam_ordre_de_la_grille():
+def test_tie_adam_grid_order():
     cfgs = [nom.adam_config(20, lr, b) for lr, b in nom.ADAM_GRID]
-    plan_order = cfgs[::-1]  # ordre du plan inverse : la regle suit la grille, pas le plan
+    plan_order = cfgs[::-1]  # reversed plan order: the rule follows the grid, not the plan
     r = par.select_adam(_collected([(c, 0.1) for c in plan_order]))
     assert r["selected"] == nom.config_id(cfgs[0]) and r["tie_applied"]
     r2 = par.select_adam(_collected([(cfgs[0], 0.3), (cfgs[1], 0.3), (cfgs[2], 0.2), (cfgs[3], 0.2)]))
-    assert r2["selected"] == nom.config_id(cfgs[2])  # (1e-2, 32) avant (1e-2, 200)
+    assert r2["selected"] == nom.config_id(cfgs[2])  # (1e-2, 32) before (1e-2, 200)
 
 
-def test_egalite_configuration_finale_moins_de_parametres_puis_ordre_du_plan():
+def test_tie_final_configuration_fewer_parameters_then_plan_order():
     big, small = nom.nominal_config((200,)), nom.nominal_config((5,))
     assert par.select_final(_collected([(big, 0.1), (small, 0.1)]))["selected"] == nom.config_id(small)
-    a, b = nom.nominal_config((10,)), nom.nominal_config((10,), activation="relu")  # meme nb de parametres
+    a, b = nom.nominal_config((10,)), nom.nominal_config((10,), activation="relu")  # same number of parameters
     assert par.select_final(_collected([(b, 0.1), (a, 0.1)]))["selected"] == nom.config_id(b)
     assert par.select_final(_collected([(a, 0.1), (b, 0.1)]))["selected"] == nom.config_id(a)
     assert par.select_final(_collected([(big, 0.05), (small, 0.1)]))["selected"] == nom.config_id(big)
 
 
-def test_graine_des_figures_validation_puis_ordre_des_graines():
+def test_figure_seed_validation_then_seed_order():
     def rec(seed, val, train=0.0):
         return {"identity": {"seed": seed}, "run_key": f"k{seed}", "weights_sha256": "w",
                 "validation_metrics": {"mse": val}, "training_metrics": {"mse": train}}
-    # la validation et l'apprentissage ordonnent les graines differemment
+    # validation and training order the seeds differently
     recs = [rec(s, v, t) for s, v, t in zip(SEEDS_MONTE_CARLO, (.5, .1, .3, .9, .4, .6, .7, .8, .2, .35),
                                             (.9, .8, .1, .5, .6, .7, .4, .3, .2, .05))]
-    assert par.figure_seed(recs)["seed"] == SEEDS_MONTE_CARLO[1]  # validation minimale, pas apprentissage
+    assert par.figure_seed(recs)["seed"] == SEEDS_MONTE_CARLO[1]  # minimal validation, not training
     ties = [rec(s, 0.2) for s in reversed(SEEDS_MONTE_CARLO)]
-    assert par.figure_seed(ties)["seed"] == SEEDS_MONTE_CARLO[0]  # ordre de SEEDS_MONTE_CARLO
+    assert par.figure_seed(ties)["seed"] == SEEDS_MONTE_CARLO[0]  # order of SEEDS_MONTE_CARLO
     with pytest.raises(ValueError):
         par.figure_seed(recs[:9])
 
 
-def test_refus_nan_et_configuration_incomplete():
+def test_refusal_of_nan_and_incomplete_configuration():
     with pytest.raises(ValueError):
         nom.select_width({5: _stats(float("nan")), 10: _stats(0.2)})
     with pytest.raises(ValueError, match="incomplete"):
@@ -138,42 +138,42 @@ def test_refus_nan_et_configuration_incomplete():
         nom.select_width({})
 
 
-def test_configurations_partagees_comptees_une_fois(campaign):
+def test_shared_configurations_counted_once(campaign):
     sel = campaign["selection"]
     assert sel["counts"]["distinct_runs"] in (160, 190)
     ranking_ids = [r["config_id"] for r in sel["final"]["ranking"]]
     assert len(ranking_ids) == len(set(ranking_ids)) == sel["counts"]["distinct_configs"]
 
 
-# ---------------------------------------------------------------- gel
-def test_gel_ecrit_une_fois_et_refuse_un_contenu_different(campaign, tmp_path):
+# ---------------------------------------------------------------- freeze
+def test_freeze_written_once_and_different_content_refused(campaign, tmp_path):
     c = campaign
-    path = tmp_path / "gel.json"
+    path = tmp_path / "freeze.json"
     d1 = par.freeze_selection(path, c["selection"])
     assert par.freeze_selection(path, c["selection"]) == d1  # idempotent
     other = json.loads(json.dumps(c["selection"]))
-    other["adam"]["selected"] = "autre"
+    other["adam"]["selected"] = "other"
     with pytest.raises(ValueError, match="different"):
         par.freeze_selection(path, other)
     frozen = json.loads(path.read_text(encoding="utf-8"))
     assert frozen["schema"] == par.SELECTION_SCHEMA and len(frozen["payload_sha256"]) == 64
-    assert "test" not in json.dumps(frozen).replace("tests", "")  # aucune valeur de test dans le gel
+    assert "test" not in json.dumps(frozen).replace("tests", "")  # no test value in the freeze
     assert frozen["counts"]["realisations"] == 210
     targets = {t["role"] for t in frozen["retrain_targets"]}
     assert targets == {"final", "lbfgs_h_star", "adam_selected"}
 
 
-# ---------------------------------------------------------------- etancheite
-def test_campagne_et_selection_sans_acces_au_test(campaign):
+# ---------------------------------------------------------------- watertightness
+def test_campaign_and_selection_without_test_access(campaign):
     assert campaign["test_calls"] == []
 
 
-def test_etancheite_statique():
+def test_static_watertightness():
     names = {m: _fin_names(m) for m in (nom, par, fin)}
-    forbidden = {"genere_base_test_2d", "prepare_data_2d", "DataSplits2D"}
+    forbidden = {"generate_test_set_2d", "prepare_data_2d", "DataSplits2D"}
     assert not forbidden & names[nom] and not forbidden & names[par]
-    assert "genere_base_test_2d" in names[fin]  # le seul module qui lit le test
-    assert "freeze_selection" not in names[fin]  # n'ecrit jamais la selection
+    assert "generate_test_set_2d" in names[fin]  # the only module that reads the test set
+    assert "freeze_selection" not in names[fin]  # never writes the selection
 
 
 def _fin_names(module):
@@ -189,49 +189,49 @@ def _fin_names(module):
     return out
 
 
-def test_enregistrement_avec_champ_test_rejete(campaign, tmp_path):
+def test_record_with_test_field_rejected(campaign, tmp_path):
     path = next(campaign["store"].glob("*.json"))
     bad = json.loads(path.read_text(encoding="utf-8"))
     bad["test_metrics"] = {"mse": 0.0}
     copy = tmp_path / path.name
     copy.write_text(json.dumps(bad), encoding="utf-8")
-    with pytest.raises(nom.StoreError, match="I7"):
+    with pytest.raises(nom.StoreError, match="closed schema"):
         nom.load_record(copy)
 
 
-# ---------------------------------------------------------------- evaluation finale
-def test_evaluation_sans_gel_ou_avec_gel_altere_ne_lit_pas_le_test(campaign, tmp_path):
+# ---------------------------------------------------------------- final evaluation
+def test_evaluation_without_freeze_or_with_altered_freeze_does_not_read_the_test_set(campaign, tmp_path):
     loads = []
     loader = lambda: (loads.append(1), campaign["test"])[1]
     tables = tmp_path / "t"
-    with pytest.raises(fin.SelectionError, match="absent"):
+    with pytest.raises(fin.SelectionError, match="missing"):
         fin.evaluate_final(tables / par.SELECTION_FILE, campaign["store"], campaign["train"],
                            campaign["val"], loader, tables_dir=tables, overrides=FAST)
-    text = campaign["gel"].read_text(encoding="utf-8")
-    altered = tmp_path / "gel.json"
+    text = campaign["freeze"].read_text(encoding="utf-8")
+    altered = tmp_path / "freeze.json"
     altered.write_text(text.replace('"relu"', '"rel0"', 1), encoding="utf-8")
-    with pytest.raises(fin.SelectionError, match="altere"):
+    with pytest.raises(fin.SelectionError, match="altered"):
         fin.evaluate_final(altered, campaign["store"], campaign["train"], campaign["val"],
                            loader, tables_dir=tables, overrides=FAST)
     assert loads == []
 
 
-def test_gel_different_du_recalcul_refuse(campaign, tmp_path):
-    frozen = json.loads(campaign["gel"].read_text(encoding="utf-8"))
+def test_freeze_different_from_the_recomputation_refused(campaign, tmp_path):
+    frozen = json.loads(campaign["freeze"].read_text(encoding="utf-8"))
     frozen.pop("payload_sha256")
     other = [r["config_id"] for r in frozen["final"]["ranking"]][-1]
-    frozen["final"]["selected"] = other  # configuration finale modifiee, hash interne recalcule
+    frozen["final"]["selected"] = other  # final configuration modified, internal hash recomputed
     frozen["payload_sha256"] = nom.sha256_text(nom.canonical(frozen))
-    path = tmp_path / "gel.json"
+    path = tmp_path / "freeze.json"
     path.write_text(json.dumps(frozen), encoding="utf-8")
     loads = []
-    with pytest.raises(fin.SelectionError, match="differe"):
+    with pytest.raises(fin.SelectionError, match="differs"):
         fin.evaluate_final(path, campaign["store"], campaign["train"], campaign["val"],
                            lambda: loads.append(1), tables_dir=tmp_path, overrides=FAST)
     assert loads == []
 
 
-def test_enregistrement_modifie_depuis_le_gel_refuse(campaign, tmp_path):
+def test_record_modified_since_the_freeze_refused(campaign, tmp_path):
     import shutil
     store = tmp_path / "store"
     shutil.copytree(campaign["store"], store)
@@ -239,25 +239,25 @@ def test_enregistrement_modifie_depuis_le_gel_refuse(campaign, tmp_path):
     rec = json.loads(victim.read_text(encoding="utf-8"))
     rec["stop_cause"] = "none" if rec["stop_cause"] != "none" else "max_iter"
     rec["payload_sha256"] = nom.sha256_text(nom.canonical({k: v for k, v in rec.items() if k != "payload_sha256"}))
-    victim.write_text(json.dumps(rec), encoding="utf-8")  # valide en soi, mais different du gel
+    victim.write_text(json.dumps(rec), encoding="utf-8")  # valid in itself, but different from the freeze
     with pytest.raises(fin.SelectionError):
-        fin.load_frozen_selection(campaign["gel"], store, campaign["train"], campaign["val"], FAST)
+        fin.load_frozen_selection(campaign["freeze"], store, campaign["train"], campaign["val"], FAST)
 
 
-def test_poids_alteres_detectes_a_la_reconstruction(campaign):
+def test_altered_weights_detected_at_rebuild(campaign):
     key = campaign["selection"]["retrain_targets"][0]["run_key"]
     record = nom.load_record(campaign["store"] / f"{key}.json")
     record = {**record, "weights_sha256": "0" * 64}
-    with pytest.raises(fin.SelectionError, match="empreinte"):
+    with pytest.raises(fin.SelectionError, match="fingerprint"):
         fin.rebuild_verified_model(record, campaign["train"], campaign["val"])
 
 
-def test_evaluation_finale_perimetre_oracle_et_selection_inchangee(campaign, tmp_path, monkeypatch, caplog):
+def test_final_evaluation_scope_oracle_and_unchanged_selection(campaign, tmp_path, monkeypatch, caplog):
     import shutil
     tables = tmp_path / "tables"
     shutil.copytree(campaign["tables"], tables, dirs_exist_ok=True) if campaign["tables"].exists() else None
     tables.mkdir(exist_ok=True)
-    shutil.copy(campaign["gel"], tables / par.SELECTION_FILE)
+    shutil.copy(campaign["freeze"], tables / par.SELECTION_FILE)
     loads, built = [], []
     original = fin.rebuild_verified_model
     monkeypatch.setattr(fin, "rebuild_verified_model",
@@ -268,14 +268,14 @@ def test_evaluation_finale_perimetre_oracle_et_selection_inchangee(campaign, tmp
                                     tables_dir=tables, overrides=FAST)
     sel = campaign["selection"]
     targets = {t["config_id"] for t in sel["retrain_targets"]}
-    assert loads == [1]  # un seul chargement du test
-    assert set(result["configs"]) == targets and len(targets) in (2, 3)  # D7-05 : rien d'autre
+    assert loads == [1]  # a single load of the test set
+    assert set(result["configs"]) == targets and len(targets) in (2, 3)  # nothing else
     assert len(built) == len({t["run_key"] for t in sel["retrain_targets"]}) == 10 * len(targets)
     events = [r for r in caplog.records if r.getMessage() == "final_retrain"]
     assert len(events) == len(built) and all(r.fields["match"] for r in events)
     adam_ids = {r["config_id"] for r in sel["adam"]["ranking"]}
-    assert len(targets & adam_ids) == 1  # le meilleur adam seul, jamais les trois autres
-    # metriques de test = oracle NumPy sur le jeu de test, distinctes de celles de validation
+    assert len(targets & adam_ids) == 1  # the best adam only, never the other three
+    # test metrics = NumPy oracle on the test set, distinct from the validation ones
     xs, ys = campaign["test"]
     xv, yv = campaign["val"]
     rows = _read_csv(tables / "mlp_2d_final_test_runs.csv")
@@ -287,10 +287,10 @@ def test_evaluation_finale_perimetre_oracle_et_selection_inchangee(campaign, tmp
         assert float(by_key[key]["test_mse"]) == pytest.approx(np.mean((ys - pred) ** 2), rel=1e-12)
         assert float(by_key[key]["test_mse"]) != pytest.approx(np.mean((yv - model.predict(xv)) ** 2), rel=1e-6)
     assert result["selection_files_sha256"][par.SELECTION_FILE] == nom.sha256_file(tables / par.SELECTION_FILE)
-    assert result["figure_network"]["note"].startswith("un cas parmi 10")
+    assert result["figure_network"]["note"].startswith("one case out of 10")
     stats = _read_csv(tables / "mlp_2d_final_test_stats.csv")
     assert {r["metric"] for r in stats} == set(nom.METRICS) and len(stats) == 4 * len(targets)
-    # idempotence : meme gel, memes sorties
+    # idempotence: same freeze, same outputs
     first = {p.name: p.read_bytes() for p in tables.iterdir() if p.name.startswith("mlp_2d_final")}
     fin.evaluate_final(tables / par.SELECTION_FILE, campaign["store"], campaign["train"], campaign["val"],
                        lambda: campaign["test"], tables_dir=tables, overrides=FAST)
@@ -299,44 +299,44 @@ def test_evaluation_finale_perimetre_oracle_et_selection_inchangee(campaign, tmp
     assert first == second
 
 
-def test_relance_refusee_si_le_gel_change_apres_l_evaluation(campaign, tmp_path):
+def test_rerun_refused_if_the_freeze_changes_after_the_evaluation(campaign, tmp_path):
     import shutil
     tables = tmp_path / "t"
     tables.mkdir()
-    shutil.copy(campaign["gel"], tables / par.SELECTION_FILE)
+    shutil.copy(campaign["freeze"], tables / par.SELECTION_FILE)
     (tables / fin.EVALUATION_FILE).write_text(json.dumps({"selection_sha256": "0" * 64}), encoding="utf-8")
     loads = []
-    with pytest.raises(fin.SelectionError, match="relance refusee"):
+    with pytest.raises(fin.SelectionError, match="rerun refused"):
         fin.evaluate_final(tables / par.SELECTION_FILE, campaign["store"], campaign["train"],
                            campaign["val"], lambda: loads.append(1), tables_dir=tables, overrides=FAST)
     assert loads == []
 
 
-def test_fichiers_de_selection_modifies_pendant_l_evaluation_detectes(campaign, tmp_path):
+def test_selection_files_modified_during_the_evaluation_are_detected(campaign, tmp_path):
     import shutil
     tables = tmp_path / "t"
     tables.mkdir()
-    shutil.copy(campaign["gel"], tables / par.SELECTION_FILE)
+    shutil.copy(campaign["freeze"], tables / par.SELECTION_FILE)
     (tables / fin.HSTAR_FILE).write_text("{}", encoding="utf-8")
 
     def tamper():
-        (tables / fin.HSTAR_FILE).write_text('{"h_star": 5}', encoding="utf-8")  # le test modifie la selection
+        (tables / fin.HSTAR_FILE).write_text('{"h_star": 5}', encoding="utf-8")  # the test modifies the selection
         return campaign["test"]
 
-    with pytest.raises(fin.SelectionError, match="ont change"):
+    with pytest.raises(fin.SelectionError, match="changed during"):
         fin.evaluate_final(tables / par.SELECTION_FILE, campaign["store"], campaign["train"],
                            campaign["val"], tamper, tables_dir=tables, overrides=FAST)
 
 
 # ------------------------------------------------------------------------------------------
-# AE7-01 : sorties de l'evaluation finale contre des oracles independants du gel et du code
+# Final evaluation outputs against oracles independent of the freeze and of the code
 # ------------------------------------------------------------------------------------------
-# Les oracles ci-dessous ne lisent que le cache (JSON bruts, sans load_record) et ne
-# reutilisent ni src.utils.metrics, ni les fonctions de selection, ni le gel : une erreur
-# commune au gel et a l'evaluation (role pointant vers une mauvaise configuration) ou une
-# metrique fausse ne peut donc pas se compenser. Le jeu de test employe (53 points, autre
-# fonction, autre graine) differe de l'apprentissage (200) et de la validation (40).
-_WIDTHS = (5, 10, 20, 50, 100, 200)  # litteraux de l'enonce, pas les constantes du code
+# The oracles below only read the cache (raw JSON, without load_record) and do not
+# reuse src.utils.metrics, nor the selection functions, nor the freeze: an error
+# common to the freeze and to the evaluation (role pointing to a wrong configuration) or a
+# wrong metric therefore cannot compensate. The test set used (53 points, another
+# function, another seed) differs from the training set (200) and the validation set (40).
+_WIDTHS = (5, 10, 20, 50, 100, 200)  # reference literals, not the constants of the code
 _ADAM_GRID = {(1e-3, 32), (1e-3, 200), (1e-2, 32), (1e-2, 200)}
 _ROLES = {"final", "lbfgs_h_star", "adam_selected"}
 
@@ -357,7 +357,7 @@ def _oracle_metrics(y, p):
 
 
 def _raw_store(store):
-    """Enregistrements du cache, lus en JSON brut : [(config, graine, record)]."""
+    """Cache records, read as raw JSON: [(config, seed, record)]."""
     out = []
     for path in sorted(Path(store).glob("*.json")):
         rec = json.loads(path.read_text(encoding="utf-8"))
@@ -375,7 +375,7 @@ def _mean_validation_by_config(raw):
 
 
 def _expected_role_configs(store):
-    """Configuration attendue de chacun des trois roles, recalculee depuis la validation brute."""
+    """Expected configuration of each of the three roles, recomputed from the raw validation."""
     by_cfg = _mean_validation_by_config(_raw_store(store))
     nominal = {c["hidden_layer_sizes"][0]: m for c, m in by_cfg.values()
                if c["solver"] == "lbfgs" and c["activation"] == "tanh" and c["alpha"] == 1e-4
@@ -395,11 +395,11 @@ def _expected_role_configs(store):
 
 @pytest.fixture(scope="module")
 def final_outputs(campaign, tmp_path_factory):
-    """Evaluation finale complete sur un jeu de test distinct, plus les modeles reentraines."""
+    """Complete final evaluation on a distinct test set, plus the retrained models."""
     import shutil
     from threadpoolctl import threadpool_limits
     tables = tmp_path_factory.mktemp("sorties_finales")
-    shutil.copy(campaign["gel"], tables / par.SELECTION_FILE)
+    shutil.copy(campaign["freeze"], tables / par.SELECTION_FILE)
     test = _distinct_test_set()
     built = {}
     original = fin.rebuild_verified_model
@@ -420,25 +420,25 @@ def final_outputs(campaign, tmp_path_factory):
             "expected": _expected_role_configs(campaign["store"])}
 
 
-def test_jeu_de_test_distinct_et_roles_attendus_discriminants(campaign, final_outputs):
-    """Garde de puissance : les trois roles visent trois configurations differentes, et
-    les metriques calculees sur le test different de celles de validation et d'apprentissage."""
+def test_distinct_test_set_and_discriminating_expected_roles(campaign, final_outputs):
+    """Power guard: the three roles target three different configurations, and
+    the metrics computed on the test set differ from the validation and training ones."""
     exp = final_outputs["expected"]
     keys = {json.dumps(exp[r], sort_keys=True) for r in _ROLES}
     assert len(keys) == 3
     alpha_variant = [c for c, _, _ in _raw_store(campaign["store"])
                      if c["hidden_layer_sizes"] == exp["lbfgs_h_star"]["hidden_layer_sizes"]
                      and c["solver"] == "lbfgs" and c["alpha"] != 1e-4]
-    assert alpha_variant  # une variante d'alpha existe dans le cache (cible possible d'une erreur)
+    assert alpha_variant  # an alpha variant exists in the cache (possible target of an error)
     assert len(final_outputs["test"][1]) not in (len(campaign["val"][1]), len(campaign["train"][1]))
 
 
-def test_chaque_role_pointe_vers_la_configuration_attendue(campaign, final_outputs):
-    """A03 : l'identite evaluee sous chaque role est comparee a la definition attendue
-    (recalculee depuis le cache), jamais au gel produit par le meme code."""
+def test_each_role_points_to_the_expected_configuration(campaign, final_outputs):
+    """The identity evaluated under each role is compared with the expected definition
+    (recomputed from the cache), never with the freeze produced by the same code."""
     exp = final_outputs["expected"]
     lit = exp["lbfgs_h_star"]
-    # definition litterale du role lbfgs H* : lbfgs, tanh, (H*,), alpha = 1e-4
+    # literal definition of the lbfgs H* role: lbfgs, tanh, (H*,), alpha = 1e-4
     assert (lit["solver"], lit["activation"], lit["hidden_layer_sizes"], lit["alpha"]) == (
         "lbfgs", "tanh", [exp["h_star"]], 1e-4)
     adam = exp["adam_selected"]
@@ -453,11 +453,11 @@ def test_chaque_role_pointe_vers_la_configuration_attendue(campaign, final_outpu
             by_role.setdefault(role, []).append((int(row["seed"]), record["identity"]["config"]))
     assert set(by_role) == _ROLES
     for role, entries in by_role.items():
-        assert sorted(s for s, _ in entries) == sorted(SEEDS_MONTE_CARLO)  # 10 graines distinctes
+        assert sorted(s for s, _ in entries) == sorted(SEEDS_MONTE_CARLO)  # 10 distinct seeds
         assert all(cfg == exp[role] for _, cfg in entries), role
 
 
-def test_roles_coherents_entre_les_quatre_sorties(final_outputs):
+def test_roles_consistent_across_the_four_outputs(final_outputs):
     runs = final_outputs["runs"]
     role_of = {}
     for r in runs:
@@ -467,12 +467,12 @@ def test_roles_coherents_entre_les_quatre_sorties(final_outputs):
         assert {r["config_id"]: r["roles"] for r in final_outputs[table]} == role_of
     configs = final_outputs["result"]["configs"]
     assert {cid: ";".join(c["roles"]) for cid, c in configs.items()} == role_of
-    for cid, c in configs.items():  # etiquette lisible coherente avec l'identite du role
+    for cid, c in configs.items():  # readable label consistent with the identity of the role
         assert c["label"] == next(r["label"] for r in final_outputs["stats"] if r["config_id"] == cid)
 
 
-def test_metriques_de_test_de_chaque_run_egales_a_l_oracle(final_outputs):
-    """A04 : EQM, RMSE, R2 et erreur maximale de chaque run contre un oracle NumPy."""
+def test_test_metrics_of_each_run_equal_the_oracle(final_outputs):
+    """MSE, RMSE, R2 and maximal error of each run against a NumPy oracle."""
     x, y = final_outputs["test"]
     assert len(final_outputs["runs"]) == 30
     swapped = 0
@@ -481,16 +481,16 @@ def test_metriques_de_test_de_chaque_run_egales_a_l_oracle(final_outputs):
         oracle = _oracle_metrics(y, pred)
         for name, value in oracle.items():
             assert float(row[f"test_{name}"]) == pytest.approx(value, rel=1e-9, abs=1e-12), name
-        # R2 a arguments inverses (mutation A04) : distinct de la valeur attendue
+        # R2 with swapped arguments (mutation): distinct from the expected value
         ss = float(np.sum((pred - np.mean(pred)) ** 2))
         if ss > 0:
             reversed_r2 = 1.0 - float(np.sum((y - pred) ** 2)) / ss
             swapped += not np.isclose(reversed_r2, oracle["r2"], rtol=1e-3)
-    assert swapped >= 25  # la garde de puissance : l'inversion est visible sur presque tous les runs
+    assert swapped >= 25  # power guard: the inversion is visible on almost all the runs
 
 
-def test_metriques_de_test_distinctes_de_validation_et_apprentissage(campaign, final_outputs):
-    """Un jeu de donnees confondu (validation ou apprentissage au lieu du test) est detecte."""
+def test_test_metrics_distinct_from_validation_and_training(campaign, final_outputs):
+    """A mixed-up data set (validation or training instead of test) is detected."""
     x, y = final_outputs["test"]
     for key in ("val", "train"):
         xo, yo = campaign[key]
@@ -501,7 +501,7 @@ def test_metriques_de_test_distinctes_de_validation_et_apprentissage(campaign, f
                 assert float(row[f"test_{name}"]) != pytest.approx(other[name], rel=1e-6), (key, name)
 
 
-def test_statistiques_et_comparaison_recalculees_depuis_les_runs(campaign, final_outputs):
+def test_statistics_and_comparison_recomputed_from_the_runs(campaign, final_outputs):
     runs = {}
     for r in final_outputs["runs"]:
         runs.setdefault(r["config_id"], []).append(r)
@@ -526,9 +526,9 @@ def test_statistiques_et_comparaison_recalculees_depuis_les_runs(campaign, final
             assert float(row[name]) == pytest.approx(value, rel=1e-9), name
 
 
-def test_reseau_des_figures_metriques_oracle_et_graine_de_validation_minimale(campaign, final_outputs):
-    """Le reseau des figures est la graine d'EQM de validation minimale de la configuration
-    finale attendue ; ses metriques de test sont celles de l'oracle."""
+def test_figure_network_oracle_metrics_and_minimal_validation_seed(campaign, final_outputs):
+    """The figure network is the seed with minimal validation MSE of the expected final
+    configuration; its test metrics are those of the oracle."""
     exp_final = final_outputs["expected"]["final"]
     final_runs = [(seed, rec) for cfg, seed, rec in _raw_store(campaign["store"]) if cfg == exp_final]
     best_seed = min(final_runs, key=lambda sr: (sr[1]["validation_metrics"]["mse"],

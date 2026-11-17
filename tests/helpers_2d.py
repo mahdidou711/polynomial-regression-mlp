@@ -1,14 +1,14 @@
-"""Aides partagees des tests de l'etape 7 : jeux synthetiques et budgets courts."""
+"""Shared test helpers: synthetic data sets and short budgets."""
 import numpy as np
 import pytest
 from threadpoolctl import threadpool_limits
 
-FAST = {"max_iter": 2, "max_fun": 20}  # surcharge de budget : tests uniquement
+FAST = {"max_iter": 2, "max_fun": 20}  # budget override: tests only
 
 
 def synthetic(n_train=200, n_val=40, n_test=30):
-    """Jeux (apprentissage, validation, test) distincts, non constants. 200 points :
-    evite l'avertissement de scikit-learn 'batch_size > n_samples' avec batch_size = 32 / 200."""
+    """Distinct, non-constant (training, validation, test) sets. 200 points:
+    avoids the scikit-learn warning 'batch_size > n_samples' with batch_size = 32 / 200."""
     rng = np.random.default_rng(7)
     out = []
     for n in (n_train, n_val, n_test):

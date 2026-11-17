@@ -1,4 +1,4 @@
-"""Visualisations (etape 3 : style commun et figures 1D)."""
+"""Figures: shared style and plotting functions."""
 
 from .style import DPI, save_figure
 

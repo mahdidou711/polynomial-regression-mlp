@@ -2,51 +2,47 @@
 
 ## Environment
 
-The reference environment is Python 3.12.3 with the packages pinned in `requirements.txt`: NumPy 2.4.6, SciPy 1.17.1, scikit-learn 1.8.0, Matplotlib 3.10.9, pytest 9.2.0 and threadpoolctl 3.6.0. Numerical results are reproducible on one host with a single BLAS thread. `main.py` sets `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` to 1 before importing NumPy; set them explicitly when running tests. Exact reproduction across platforms or different library versions is not established.
+The reference environment is Python 3.12 with the packages pinned in `requirements.txt`: NumPy 2.4.6, SciPy 1.17.1, scikit-learn 1.8.0, Matplotlib 3.10.9, pytest 9.2.0 and threadpoolctl 3.6.0. Numerical results are reproducible on one host with a single BLAS thread (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, set by `main.py` and by the `Makefile`); no cross-platform bitwise guarantee is made.
 
 ## Commands
 
 | Command | Effect |
 | --- | --- |
-| `python main.py verify [--with-models]` | Read-only. Static checks of the versioned artefacts, then regeneration in a temporary directory and a byte-for-byte comparison. Exits with code 1 on any failure. |
-| `python main.py export [--with-models]` | Regenerates in a temporary directory, refuses any drift of the source tables, then writes into the repository only the derived artefacts that differ. Source tables are never rewritten. |
-| `python main.py reproduce --out DIR [--no-models]` | Isolated reproduction: everything is written under `DIR` (outside the repository, empty), then compared with the repository. The cache of runs is read, not written; no network is trained. |
-| `python main.py reproduce --full --out DIR` | Full reproduction in an isolated directory: 1D runners, all MLP batches with training of the 190 runs, final evaluation, figures, tables and manifests. Nothing is written into the repository. |
+| `make figures` | `python main.py export --with-models`: regenerates tables, figures and manifest in a temporary directory, then writes the files that differ into the repository. Source tables already present are never rewritten; missing ones are created. In a clean checkout this builds `results/` from the cache of trained networks, computing the final evaluation after verifying the selection freeze. |
+| `make test` | Runs the complete test suite (builds `results/` first if it is absent). |
+| `make repro` | `python main.py verify --with-models`: read-only static checks, regeneration in a temporary directory and byte-for-byte comparison with `results/`. Exits with code 1 on any failure. |
+| `python main.py reproduce --out DIR [--no-models]` | Isolated reproduction: everything is written under `DIR` (outside the repository, empty), then compared with the repository. The cache of runs is read, not written. |
+| `python main.py reproduce --full --out DIR` | Full reproduction in an isolated directory: 1D runners, all MLP stages with training of the 190 runs, final evaluation, figures, tables and manifests. Nothing is written into the repository. |
 
-`--with-models` adds the figures that need a trained network (2D parity, residual map, 3D surfaces, activation comparison). It rebuilds three networks, each checked against the SHA-256 fingerprint of its weights. Without this option those figures are kept as they are and `verify` reports `NOT RUN` for their regeneration.
+`--with-models` adds the figures that need a trained network (2D parity, residual map, 3D surfaces, activation comparison). It rebuilds three networks, each checked against the SHA-256 fingerprint of its weights. Without this option those figures are kept as they are and `verify` reports their regeneration as `NOT RUN`.
 
-`reproduce --full` does not read the test set until the retrained runs and the recomputed selection are scientifically identical to the stored reference. Its final comparison ignores run durations, which are not reproducible. This command was not re-executed when this documentation was written.
+`reproduce --full` does not read the test set until the retrained runs and the recomputed selection are scientifically identical to the stored reference. Its final comparison ignores run durations, which are not reproducible.
 
 ## What `verify` checks
 
-Run on 2026-11-13 with the pinned environment, `python main.py verify` passed these checks in about 18 seconds:
-
 - naming and presence of the figures and tables, and absence of undeclared files;
 - figure formats and resolution;
-- static analysis of the LaTeX table fragments (no compilation);
-- the standalone LaTeX preview source;
 - SHA-256 hashes of all artefacts against the manifest;
-- absence of transient files;
 - internal consistency of the final evaluation and of the selection freeze, without rereading the test set;
 - drift of the source tables: 1D tables recomputed, MLP tables recomputed from the cache;
-- byte-identical regeneration of derived artefacts.
-
-One check, regeneration of the figures that depend on trained networks, is reported as `NOT RUN` in this mode.
+- byte-identical regeneration of the derived artefacts.
 
 ## Cache and manifest
 
-`data/processed/mlp_2d_runs/` holds 190 JSON records, one per distinct run, named `<run_key>.json`. The run key is the SHA-256 of a canonical description of the run: configuration, fixed engine parameters, seed, fingerprints of the training and validation data, software versions, a hash of the model source and the number of BLAS threads. Changing any of them yields a different key.
+`data/processed/mlp_2d_runs/` holds 190 JSON records, one per distinct run, named `<run_key>.json`. The run key is the SHA-256 of a canonical description of the run: configuration, fixed engine parameters, seed, fingerprints of the training and validation data, software versions, a hash of the model source (`src/models/mlp.py`) and the number of BLAS threads. Changing any of them yields a different key, so the cache must be rebuilt after editing the model source (stages `runner_2d_nominal` and `runner_2d_parametric`, a few minutes in total).
 
-`data/processed/export_manifest.json` records the SHA-256 of 98 artefacts, the selection freeze, the test data fingerprint and the software versions. The manifest states three limits: reproducibility is established on one host and one BLAS thread, statistics over 10 or 50 seeds are descriptive rather than confidence intervals, and the final evaluation tables are checked for consistency by `verify` rather than regenerated by `export`.
+`data/processed/export_manifest.json` records the SHA-256 of every exported artefact, the selection freeze, the test data fingerprint and the software versions. It is generated by `make figures` and is not versioned. The manifest states three limits: reproducibility is established on one host and one BLAS thread, statistics over 10 or 50 seeds are descriptive rather than confidence intervals, and the final evaluation tables are checked for consistency by `verify` rather than regenerated by `export`.
 
 ## Tests
+
+```sh
+make test
+```
+
+The suite contains small MLP training tests. A faster mode that skips the tests where an MLP would be optimised is provided by `tests/conftest.py`:
 
 ```sh
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m pytest -q --no-mlp-training
 ```
 
-On 2026-11-13 this reported 593 passed and 97 skipped (690 collected) in about 45 seconds. The mode `--no-mlp-training` is provided by `tests/conftest.py`: it makes the tests skip at the point where they would optimise an MLP and does not alter the other checks. The complete suite, `python -m pytest -q`, runs small MLP training tests and is meant for deliberate use. Neither mode reruns the 190-run campaign.
-
-## LaTeX table fragments
-
-`results/tables/*.tex` are fragments for `\input{}`: one `tabular` or `longtable` each, without caption or label, using the packages `booktabs`, `siunitx` (version 3 recommended) and `longtable`. Numeric input uses a decimal point; a comma can be set with `\sisetup{output-decimal-marker={,}}`. `results/tables_preview.tex` is a standalone document including all fragments. The repository checks the fragments statically; compiling the preview with a LaTeX distribution is optional and is not part of `verify`.
+Neither mode reruns the 190-run campaign.

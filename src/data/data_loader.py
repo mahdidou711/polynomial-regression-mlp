@@ -1,4 +1,4 @@
-"""Chargement du fichier 2D de reference, sans substitution synthetique."""
+"""Loading of the reference 2D input file, without synthetic substitution."""
 
 import hashlib
 import io
@@ -11,27 +11,27 @@ DEFAULT_TRAINING_PATH = Path(__file__).resolve().parents[2] / "data/raw/sinc_dim
 
 
 def load_training_data_2d(path=DEFAULT_TRAINING_PATH) -> np.ndarray:
-    """Lit les 200 couples officiels dans leur ordre ; verifie les octets et le contenu.
+    """Read the 200 input pairs in file order; check the bytes and the content.
 
-    ``path`` permet de localiser une copie identique du fichier de reference.
-    Une absence leve FileNotFoundError ; une identite ou un contenu invalide,
-    ValueError. Le calcul du hash et le parsing portent sur les memes octets.
+    ``path`` can point to an identical copy of the reference file. A missing
+    file raises FileNotFoundError; an invalid identity or content raises
+    ValueError. The hash and the parsing use the same bytes.
     """
     raw = Path(path).read_bytes()
     if hashlib.sha256(raw).hexdigest() != TRAINING_SHA256:
-        raise ValueError("SHA-256 du fichier d'apprentissage incorrect")
+        raise ValueError("incorrect SHA-256 of the input file")
     try:
         content = raw.decode("utf-8")
         lines = content.splitlines()
         if not lines or lines[0] != "x1;x2" or len(lines) != 201:
-            raise ValueError("en-tete ou nombre de lignes incorrect")
+            raise ValueError("incorrect header or number of rows")
         x = np.loadtxt(io.StringIO(content), delimiter=";", skiprows=1, ndmin=2)
     except (UnicodeError, ValueError) as exc:
-        raise ValueError(f"CSV d'apprentissage mal forme : {exc}") from exc
+        raise ValueError(f"malformed training CSV: {exc}") from exc
     if x.shape != (200, 2):
-        raise ValueError(f"forme attendue (200, 2), recue {x.shape}")
+        raise ValueError(f"expected shape (200, 2), got {x.shape}")
     if not np.isfinite(x).all() or np.any((x < 0) | (x > 1)):
-        raise ValueError("coordonnees non finies ou hors de [0, 1]")
+        raise ValueError("non-finite coordinates or outside [0, 1]")
     if np.unique(x, axis=0).shape[0] != 200:
-        raise ValueError("points d'apprentissage dupliques")
+        raise ValueError("duplicated training points")
     return x

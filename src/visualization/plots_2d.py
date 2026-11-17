@@ -1,14 +1,14 @@
-"""Figures MLP 2D (etape 7) : surfaces 3D, carte des residus, parite, campagnes, convergence.
+"""2D MLP figures: 3D surfaces, residual map, parity, campaigns, convergence.
 
-Orientation (EXG-PROG-B3-02) : le code de l'enseignant construit ``meshgrid(x1v, x2v)``
-(indexing 'xy', x1 en colonnes) mais remplit ``R[i, j]`` avec x1 en ligne, d'ou une surface
-transposee. Ici, ``X1, X2 = meshgrid(axe, axe, indexing='ij')`` et ``Z = f(points).reshape``
-donnent ``Z[i, j] = f(x1_i, x2_j)`` en une seule prediction vectorisee ; le triplet
-(X1, X2, Z) transmis a ``plot_surface`` est coherent. Aucune figure ne lit le test : les
-donnees arrivent en argument depuis ``final_evaluation_2d`` (apres gel et verification).
+Orientation: a typical ``meshgrid(x1v, x2v)`` (indexing 'xy', x1 along columns) filled
+as ``R[i, j]`` with x1 along rows gives a transposed surface. Here,
+``X1, X2 = meshgrid(axis, axis, indexing='ij')`` and ``Z = f(points).reshape`` give
+``Z[i, j] = f(x1_i, x2_j)`` in a single vectorised prediction; the triplet
+(X1, X2, Z) passed to ``plot_surface`` is consistent. No figure reads the test set: the
+data arrive as arguments from ``final_evaluation_2d`` (after freeze and verification).
 
-Surfaces 3D : PNG 300 DPI seul ; figures 2D : PDF + PNG (``save_figure``, avenant 7.11).
-Commande : python -m src.visualization.plots_2d (apres l'evaluation finale).
+3D surfaces: 300 DPI PNG only; 2D figures: PDF + PNG (``save_figure``).
+Command: python -m src.visualization.plots_2d (after the final evaluation).
 """
 
 import argparse
@@ -16,23 +16,23 @@ from pathlib import Path
 
 import numpy as np
 
-from src.data.generator_2d import sinus_cardinal
+from src.data.generator_2d import cardinal_sine
 from src.experiments.runner_2d_nominal import FIGURES_DIR, STOP_CAUSES, TABLES_DIR
 from src.utils.metrics import r2_score
 from src.visualization.style import (CMAP, COLOR_FIT, COLOR_TEST, COLOR_TRAIN, FLOOR_LOG,
                                      floor_for_log, new_figure, save_figure, style_context)
 
-RENDER_STEP = 0.005  # CDC 6.4 : 200 x 200 = 40 000 points
-ELEV, AZIM = 30, -60  # plan 04 section 7
+RENDER_STEP = 0.005  # 200 x 200 = 40,000 points
+ELEV, AZIM = 30, -60  # default 3D view angles
 
 
 def render_axis(step: float = RENDER_STEP) -> np.ndarray:
-    """Axe de rendu : identique bit a bit a ``np.arange(0, 1, 0.005)`` (200 points, borne 1 exclue)."""
+    """Rendering axis: bit-for-bit identical to ``np.arange(0, 1, 0.005)`` (200 points, bound 1 excluded)."""
     return np.linspace(0.0, 1.0, int(round(1.0 / step)), endpoint=False)
 
 
 def surface_grid(func, step: float = RENDER_STEP):
-    """(X1, X2, Z) avec ``Z[i, j] = f(x1_i, x2_j)`` ; ``func`` recoit un tableau (N, 2)."""
+    """(X1, X2, Z) with ``Z[i, j] = f(x1_i, x2_j)``; ``func`` receives an (N, 2) array."""
     axis = render_axis(step)
     x1, x2 = np.meshgrid(axis, axis, indexing="ij")
     z = np.asarray(func(np.column_stack((x1.ravel(), x2.ravel())))).reshape(x1.shape)
@@ -40,7 +40,7 @@ def surface_grid(func, step: float = RENDER_STEP):
 
 
 def plot_surface_3d(ax, x1, x2, z, title, vmin=None, vmax=None):
-    """Surface coolwarm, antialiasing actif, vue (30, -60), axes x1 puis x2 etiquetes."""
+    """Surface (project colormap), antialiasing on, view (30, -60), axes x1 then x2 labelled."""
     surf = ax.plot_surface(x1, x2, z, cmap=CMAP, linewidth=0, antialiased=True,
                            vmin=vmin, vmax=vmax)
     ax.set_xlabel("x1")
@@ -52,7 +52,7 @@ def plot_surface_3d(ax, x1, x2, z, title, vmin=None, vmax=None):
 
 
 def _abs_residual(predict, step):
-    x1, x2, exact = surface_grid(sinus_cardinal, step)
+    x1, x2, exact = surface_grid(cardinal_sine, step)
     _, _, pred = surface_grid(predict, step)
     return x1, x2, exact, pred, np.abs(pred - exact)
 
@@ -67,12 +67,12 @@ def surface_figure(x1, x2, z, title):
 
 
 def surfaces_board(predict, step: float = RENDER_STEP):
-    """Planche : surface exacte, surface predite, |residu| (EXG-RAP-B3-01)."""
+    """Panel: exact surface, predicted surface, |residual|."""
     x1, x2, exact, pred, res = _abs_residual(predict, step)
     with style_context():
         fig = new_figure(14.0, 4.6)
-        for k, (z, title) in enumerate([(exact, "Surface exacte"), (pred, "Surface predite"),
-                                         (res, "Residu absolu |y_pred - y|")]):
+        for k, (z, title) in enumerate([(exact, "Exact surface"), (pred, "Predicted surface"),
+                                         (res, "Absolute residual |y_pred - y|")]):
             ax = fig.add_subplot(1, 3, k + 1, projection="3d")
             surf = plot_surface_3d(ax, x1, x2, z, title)
             fig.colorbar(surf, ax=ax, shrink=0.55, pad=0.08)
@@ -80,7 +80,7 @@ def surfaces_board(predict, step: float = RENDER_STEP):
 
 
 def residual_map_2d(predict, step: float = RENDER_STEP):
-    """Carte 2D de |residu| (pcolormesh, trame) avec contours de la surface exacte (D7-06)."""
+    """2D map of |residual| (pcolormesh, rasterised) with contours of the exact surface."""
     x1, x2, exact, _, res = _abs_residual(predict, step)
     with style_context():
         fig = new_figure(5.4, 4.6)
@@ -90,7 +90,7 @@ def residual_map_2d(predict, step: float = RENDER_STEP):
         ax.set_xlabel("x1")
         ax.set_ylabel("x2")
         ax.set_aspect("equal")
-        ax.set_title("Residu absolu |y_pred - y| (contours : surface exacte)")
+        ax.set_title("Absolute residual |y_pred - y| (contours: exact surface)")
         fig.colorbar(mesh, ax=ax, label="|y_pred - y|")
     return fig
 
@@ -110,10 +110,10 @@ def activation_figure(predict_tanh, predict_relu, step: float = RENDER_STEP):
 
 
 def parity_figure(y_train, pred_train, y_test, pred_test):
-    """Parite 1:1 (repere orthonormé, droite y = x) pour l'apprentissage et le test."""
+    """1:1 parity (orthonormal frame, line y = x) for training and test."""
     with style_context():
         fig = new_figure(9.0, 4.4)
-        for k, (y, p, label, color) in enumerate([(y_train, pred_train, "apprentissage", COLOR_TRAIN),
+        for k, (y, p, label, color) in enumerate([(y_train, pred_train, "training", COLOR_TRAIN),
                                                    (y_test, pred_test, "test", COLOR_TEST)]):
             y, p = np.asarray(y), np.asarray(p)
             ax = fig.add_subplot(1, 2, k + 1)
@@ -124,14 +124,14 @@ def parity_figure(y_train, pred_train, y_test, pred_test):
             ax.set_ylim(lim)
             ax.set_aspect("equal", adjustable="box")
             ax.set_xlabel("y exact")
-            ax.set_ylabel("y predit")
-            ax.set_title(f"Parite, {label} (R2 = {r2_score(y, p):.5f}, N = {len(y)})")
+            ax.set_ylabel("y predicted")
+            ax.set_title(f"Parity, {label} (R2 = {r2_score(y, p):.5f}, N = {len(y)})")
             ax.legend()
     return fig
 
 
 def width_figure(val_mse_by_width, h_star):
-    """EQM de validation par largeur : points par graine, moyenne, echelle log, H* repere."""
+    """Validation MSE per width: points per seed, mean, log scale, H* marked."""
     with style_context():
         fig = new_figure(6.4, 4.2)
         ax = fig.add_subplot()
@@ -140,17 +140,17 @@ def width_figure(val_mse_by_width, h_star):
             v = floor_for_log(val_mse_by_width[h])
             ax.semilogy([i] * len(v), v, "o", color=COLOR_FIT, alpha=0.5, ms=4)
         means = [floor_for_log(np.mean(val_mse_by_width[h])) for h in widths]
-        ax.semilogy(range(len(widths)), means, "k-s", label="moyenne (10 graines)")
+        ax.semilogy(range(len(widths)), means, "k-s", label="mean (10 seeds)")
         ax.axvline(widths.index(h_star), color=COLOR_TEST, ls=":", label=f"H* = {h_star}")
         ax.set_xticks(range(len(widths)), [str(h) for h in widths])
-        ax.set_xlabel("largeur H")
-        ax.set_ylabel("EQM de validation")
+        ax.set_xlabel("width H")
+        ax.set_ylabel("validation MSE")
         ax.legend()
     return fig
 
 
 def sensitivity_figure(groups):
-    """groups : {label: [EQM de validation par graine]} ; ordre du dictionnaire conserve."""
+    """groups: {label: [validation MSE per seed]}; dictionary order kept."""
     with style_context():
         fig = new_figure(9.0, 4.6)
         ax = fig.add_subplot()
@@ -159,12 +159,12 @@ def sensitivity_figure(groups):
             ax.semilogy([i] * len(v), v, "o", color=COLOR_FIT, alpha=0.5, ms=4)
             ax.semilogy([i], [np.mean(v)], "k_", ms=14)
         ax.set_xticks(range(len(groups)), list(groups), rotation=60, ha="right", fontsize=6)
-        ax.set_ylabel("EQM de validation")
+        ax.set_ylabel("validation MSE")
     return fig
 
 
 def convergence_figure(rows):
-    """rows : {label: {'n_iter': [...], 'causes': {cause: n}}} ; n_iter par run et causes d'arret."""
+    """rows: {label: {'n_iter': [...], 'causes': {cause: n}}}; n_iter per run and stopping causes."""
     with style_context():
         fig = new_figure(10.0, 4.6)
         ax1, ax2 = fig.add_subplot(1, 2, 1), fig.add_subplot(1, 2, 2)
@@ -172,7 +172,7 @@ def convergence_figure(rows):
             ax1.semilogy([i] * len(row["n_iter"]), floor_for_log(row["n_iter"], 1.0), "o",
                          color=COLOR_FIT, alpha=0.5, ms=4)
         ax1.set_xticks(range(len(rows)), list(rows), rotation=60, ha="right", fontsize=5)
-        ax1.set_ylabel("iterations / epoques")
+        ax1.set_ylabel("iterations / epochs")
         bottom = np.zeros(len(rows))
         for cause in STOP_CAUSES:
             counts = np.array([row["causes"].get(cause, 0) for row in rows.values()])
@@ -185,37 +185,37 @@ def convergence_figure(rows):
 
 
 def adam_curves_figure(curves):
-    """curves : {label: [[perte par epoque] par graine]} (echelle log)."""
+    """curves: {label: [[loss per epoch] per seed]} (log scale)."""
     with style_context():
         fig = new_figure(7.0, 4.4)
         ax = fig.add_subplot()
         for label, runs in curves.items():
             for k, c in enumerate(runs):
                 ax.semilogy(floor_for_log(c), lw=0.6, alpha=0.5, label=label if k == 0 else None)
-        ax.set_xlabel("epoque")
-        ax.set_ylabel("perte")
+        ax.set_xlabel("epoch")
+        ax.set_ylabel("loss")
         ax.legend(fontsize=6)
     return fig
 
 
 def save_mlp_figures(inputs, directory=FIGURES_DIR, step: float = RENDER_STEP) -> list:
-    """Exporte les figures qui dependent du reseau des figures ; ``inputs`` vient de
-    ``final_evaluation_2d.figure_inputs`` (modeles verifies, donnees, gel)."""
+    """Export the figures that depend on the figure network; ``inputs`` comes from
+    ``final_evaluation_2d.figure_inputs`` (verified models, data, freeze)."""
     directory = Path(directory)
     model = inputs["figure_model"]
     paths = []
-    x1, x2, exact = surface_grid(sinus_cardinal, step)
+    x1, x2, exact = surface_grid(cardinal_sine, step)
     _, _, pred = surface_grid(model.predict, step)
-    for stem, z, title in [("mlp_2d_surface_exacte", exact, "Surface exacte"),
-                           ("mlp_2d_surface_predite", pred, "Surface predite"),
-                           ("mlp_2d_surface_residus", np.abs(pred - exact), "Residu absolu")]:
+    for stem, z, title in [("mlp_2d_surface_exact", exact, "Exact surface"),
+                           ("mlp_2d_surface_predicted", pred, "Predicted surface"),
+                           ("mlp_2d_surface_residuals", np.abs(pred - exact), "Absolute residual")]:
         paths += save_figure(surface_figure(x1, x2, z, title), directory / stem, vector=False)
-    paths += save_figure(surfaces_board(model.predict, step), directory / "mlp_2d_planche_3d",
+    paths += save_figure(surfaces_board(model.predict, step), directory / "mlp_2d_panel_3d",
                          vector=False)
-    paths += save_figure(residual_map_2d(model.predict, step), directory / "mlp_2d_residus_carte")
+    paths += save_figure(residual_map_2d(model.predict, step), directory / "mlp_2d_residual_map")
     (xt, yt), (xs, ys) = inputs["train"], inputs["test"]
     paths += save_figure(parity_figure(yt, model.predict(xt), ys, model.predict(xs)),
-                         directory / "mlp_2d_parite")
+                         directory / "mlp_2d_parity")
     paths += save_figure(activation_figure(inputs["tanh_model"].predict,
                                            inputs["relu_model"].predict, step),
                          directory / "mlp_2d_activation_tanh_relu", vector=False)
@@ -223,9 +223,9 @@ def save_mlp_figures(inputs, directory=FIGURES_DIR, step: float = RENDER_STEP) -
 
 
 def save_campaign_figures(collected, h_star, directory=FIGURES_DIR) -> list:
-    """Figures de campagne, calculees uniquement a partir des enregistrements de validation.
+    """Campaign figures, computed only from the validation records.
 
-    ``collected`` : sortie de ``collect_stats`` ({config_id: {config, roles, records, stats}}).
+    ``collected``: output of ``collect_stats`` ({config_id: {config, roles, records, stats}}).
     """
     from src.experiments.runner_2d_nominal import config_label
     directory = Path(directory)
@@ -242,11 +242,11 @@ def save_campaign_figures(collected, h_star, directory=FIGURES_DIR) -> list:
         if cfg.solver == "adam":
             curves[label] = [r["diagnostics"]["loss_curve"] for r in recs
                              if r["diagnostics"]["loss_curve"]]
-    paths = save_figure(width_figure(by_width, h_star), directory / "mlp_2d_largeur")
-    paths += save_figure(sensitivity_figure(groups), directory / "mlp_2d_sensibilites")
+    paths = save_figure(width_figure(by_width, h_star), directory / "mlp_2d_width")
+    paths += save_figure(sensitivity_figure(groups), directory / "mlp_2d_sensitivities")
     paths += save_figure(convergence_figure(rows), directory / "mlp_2d_convergence")
     if curves:
-        paths += save_figure(adam_curves_figure(curves), directory / "mlp_2d_adam_courbes")
+        paths += save_figure(adam_curves_figure(curves), directory / "mlp_2d_adam_curves")
     return paths
 
 
@@ -255,14 +255,14 @@ def main(argv=None) -> int:
     parser.add_argument("--figures-dir", type=Path, default=FIGURES_DIR)
     parser.add_argument("--tables-dir", type=Path, default=TABLES_DIR)
     args = parser.parse_args(argv)
-    from src.experiments import final_evaluation_2d  # verifie le gel et fournit modeles et donnees
+    from src.experiments import final_evaluation_2d  # checks the freeze and provides models and data
     from src.experiments.runner_2d_nominal import check_threads
     check_threads()
     from src.experiments.runner_2d_nominal import (NOMINAL_STORE, data_fingerprint,
-                                                   environment_identity, load_official_data)
+                                                   environment_identity, load_input_data)
     from src.experiments.runner_2d_parametric import compute_selection
     inputs = final_evaluation_2d.figure_inputs(tables_dir=args.tables_dir)
-    xt, yt, xv, yv = load_official_data()
+    xt, yt, xv, yv = load_input_data()
     selection, collected = compute_selection(NOMINAL_STORE, data_fingerprint(xt, yt, xv, yv),
                                              environment_identity(check_threads()))
     paths = save_mlp_figures(inputs, args.figures_dir)

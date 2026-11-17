@@ -1,0 +1,96 @@
+{
+ "diagnostics": {
+  "convergence_warnings": [],
+  "elapsed_seconds": 0.4906123379987548,
+  "iteration_limit_reached": false,
+  "loss": 0.00012481851007085844,
+  "loss_curve": null,
+  "loss_curve_available": false,
+  "n_iter": 2374,
+  "status": "stopped_unverified",
+  "tail_loss": null,
+  "tail_oscillation": false
+ },
+ "identity": {
+  "blas_threads": 1,
+  "config": {
+   "activation": "tanh",
+   "alpha": 0.0001,
+   "batch_size": "auto",
+   "hidden_layer_sizes": [
+    50
+   ],
+   "learning_rate_init": 0.001,
+   "max_fun": 100000,
+   "max_iter": 10000,
+   "n_iter_no_change": 10,
+   "solver": "lbfgs",
+   "tol": 1e-06
+  },
+  "data": {
+   "train_sha256": "ec1822ee392bdb59657961bb2ba20e9f40f107151e039c7ef8c460b05b0b3210",
+   "validation_sha256": "e89505465710b5a46d6442ee59c897f21517a3e7a83b1b2ad3d7c26b819b95de"
+  },
+  "engine_fixed": {
+   "beta_1": 0.9,
+   "beta_2": 0.999,
+   "early_stopping": false,
+   "learning_rate": "constant",
+   "shuffle": true
+  },
+  "engine_sha256": "48129d3febc24792eb9e1b271453dbb8ccfb199740e2c30118946fb3ae32e531",
+  "seed": 789,
+  "versions": {
+   "numpy": "2.4.6",
+   "python": "3.12.3",
+   "scikit-learn": "1.8.0",
+   "scipy": "1.17.1"
+  }
+ },
+ "parameters": {
+  "activation": "tanh",
+  "alpha": 0.0001,
+  "batch_size": "auto",
+  "beta_1": 0.9,
+  "beta_2": 0.999,
+  "early_stopping": false,
+  "epsilon": 1e-08,
+  "hidden_layer_sizes": [
+   50
+  ],
+  "learning_rate": "constant",
+  "learning_rate_init": 0.001,
+  "loss": "squared_error",
+  "max_fun": 100000,
+  "max_iter": 10000,
+  "momentum": 0.9,
+  "n_iter_no_change": 10,
+  "nesterovs_momentum": true,
+  "power_t": 0.5,
+  "random_state": 789,
+  "shuffle": true,
+  "solver": "lbfgs",
+  "tol": 1e-06,
+  "validation_fraction": 0.1,
+  "verbose": false,
+  "warm_start": false
+ },
+ "payload_sha256": "e2fad326495af8f57fbc1c768c019224f371582f0d3e6c122a69cbd97082655b",
+ "run_key": "f3a1a33dfe7de336187e350e7ea45891180cb0ce67df071b8a4cd933d34133bb",
+ "schema": "c0-mlp2d-run/1",
+ "status": "completed",
+ "stop_cause": "none",
+ "training_metrics": {
+  "max_abs_error": 0.03087981188360034,
+  "mse": 0.00011029626132515126,
+  "r2": 0.9985444362034525,
+  "rmse": 0.010502202689205311
+ },
+ "validation_metrics": {
+  "max_abs_error": 0.06984212943499041,
+  "mse": 0.00021141077210445883,
+  "r2": 0.99728983521275,
+  "rmse": 0.014539971530386806
+ },
+ "weights_sha256": "0b0acf0f20c8a70c48f597b20c8c0a053d7782f688638fb40200756a8ee78b4b"
+}

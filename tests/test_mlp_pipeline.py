@@ -1,4 +1,4 @@
-"""Contrats du moteur MLP, sans campagne de selection scientifique."""
+"""Contracts of the MLP engine, without a scientific selection campaign."""
 import logging
 import warnings
 
@@ -22,7 +22,7 @@ def train(config, seed, data):
     return mlp.train_mlp(config, seed, x, y, x, y)
 
 
-def test_nominal_params_et_configurations():
+def test_nominal_params_and_configurations():
     c = mlp.MLPConfig()
     assert (c.activation, c.solver, c.alpha, c.max_iter, c.max_fun, c.tol) == (
         'tanh', 'lbfgs', 1e-4, 10000, 100000, 1e-6)
@@ -30,7 +30,7 @@ def test_nominal_params_et_configurations():
 
 
 @pytest.mark.parametrize('layers', [(3,), (4, 2)])
-def test_reel_parametres_prediction_et_sortie_lineaire(data, layers):
+def test_real_parameters_prediction_and_linear_output(data, layers):
     c = mlp.MLPConfig(layers, max_iter=30, max_fun=300, alpha=.002)
     r = train(c, 42, data)
     assert r.parameters['hidden_layer_sizes'] == layers
@@ -44,7 +44,7 @@ def test_reel_parametres_prediction_et_sortie_lineaire(data, layers):
     assert r.versions['scikit-learn']
 
 
-def test_determinisme_sur_dix_graines_et_independance(data):
+def test_determinism_over_ten_seeds_and_independence(data):
     c = mlp.MLPConfig((2,), max_iter=1)
     x, y = data
     before = np.random.get_state()
@@ -61,7 +61,7 @@ def test_determinisme_sur_dix_graines_et_independance(data):
     assert before[0] == after[0] and np.array_equal(before[1], after[1]) and before[2:] == after[2:]
 
 
-def test_statistiques_et_metriques_oracle(data):
+def test_statistics_and_oracle_metrics(data):
     x, y = data
     results = mlp.run_multi_seed(mlp.MLPConfig((3,), max_iter=3), x, y, x, y, seeds=(42, 123, 456))
     expected = []
@@ -81,8 +81,8 @@ def test_statistiques_et_metriques_oracle(data):
     assert single.statistics['validation']['mse']['std'] is None
 
 
-def test_warning_capte_et_journalise(data, caplog):
-    with caplog.at_level(logging.WARNING, logger='c0_tp2_mlp.mlp'):
+def test_warning_captured_and_logged(data, caplog):
+    with caplog.at_level(logging.WARNING, logger='polynomial_mlp.mlp'):
         r = train(mlp.MLPConfig((3,), max_iter=1), 42, data)
     assert r.diagnostics['convergence_warnings']
     assert r.diagnostics['status'] == 'warning'
@@ -92,17 +92,17 @@ def test_warning_capte_et_journalise(data, caplog):
     assert record.fields['parameters']['max_iter'] == 1
 
 
-def test_autre_warning_pas_masque(data, monkeypatch):
+def test_other_warning_not_masked(data, monkeypatch):
     original = mlp.MLPRegressor.fit
     def fit(self, *args, **kwargs):
-        warnings.warn('autre alerte', UserWarning)
+        warnings.warn('other alert', UserWarning)
         return original(self, *args, **kwargs)
     monkeypatch.setattr(mlp.MLPRegressor, 'fit', fit)
-    with pytest.warns(UserWarning, match='autre alerte'):
+    with pytest.warns(UserWarning, match='other alert'):
         train(mlp.MLPConfig((2,), max_iter=1), 42, data)
 
 
-def test_adam_courbe_et_parametres(data):
+def test_adam_curve_and_parameters(data):
     c = mlp.MLPConfig((4, 2), solver='adam', activation='relu', max_iter=8,
                       tol=1e-8, learning_rate_init=.01, batch_size=3, n_iter_no_change=200)
     r = train(c, 123, data)
@@ -118,23 +118,23 @@ def test_adam_courbe_et_parametres(data):
     dict(solver='sgd'), dict(alpha=-1), dict(alpha=float('nan')), dict(max_iter=0),
     dict(max_fun=0), dict(tol=-1), dict(batch_size=0), dict(batch_size=True),
     dict(n_iter_no_change=0), dict(learning_rate_init=0)])
-def test_config_invalide(kwargs):
+def test_invalid_config(kwargs):
     with pytest.raises(ValueError): mlp.MLPConfig(**kwargs)
 
 
 @pytest.mark.parametrize('x,y', [(np.empty((0, 2)), []), ([[1]], [1]), ([[1, 2]], [[1]]),
     ([[1, 2], [3, 4]], [1]), ([[1, float('nan')], [2, 3]], [1, 2]),
     ([[1, 2], [3, 4]], [1, 1])])
-def test_donnees_invalides(x, y, data):
+def test_invalid_data(x, y, data):
     with pytest.raises(ValueError):
         mlp.train_mlp(mlp.MLPConfig(), 42, x, y, *data)
 
 
-def test_graines_invalides_et_aucun_acces_test(data, monkeypatch):
+def test_invalid_seeds_and_no_test_access(data, monkeypatch):
     from src.data import generator_2d
     def forbidden(*args, **kwargs):
         raise AssertionError('test final accede')
-    monkeypatch.setattr(generator_2d, 'genere_base_test_2d', forbidden)
+    monkeypatch.setattr(generator_2d, 'generate_test_set_2d', forbidden)
     x, y = data
     for seeds in ((), (42, 42), (None,)):
         with pytest.raises((ValueError, TypeError)):
@@ -145,7 +145,7 @@ def test_graines_invalides_et_aucun_acces_test(data, monkeypatch):
         mlp.run_multi_seed(mlp.MLPConfig(), x, y, x, y, x_test=x, y_test=y)
 
 
-def test_courbe_incoherente_et_oscillation(data, monkeypatch):
+def test_inconsistent_curve_and_oscillation(data, monkeypatch):
     original = mlp.MLPRegressor.fit
     def fit(self, *args, **kwargs):
         original(self, *args, **kwargs)
@@ -164,7 +164,7 @@ def test_courbe_incoherente_et_oscillation(data, monkeypatch):
         train(mlp.MLPConfig((2,), solver='adam', max_iter=1), 42, data)
 
 
-def test_initialisations_effectivement_distinctes(data, monkeypatch):
+def test_initialisations_are_actually_distinct(data, monkeypatch):
     initial = []
     original = mlp.MLPRegressor._initialize
     def capture(self, *args, **kwargs):
@@ -179,7 +179,7 @@ def test_initialisations_effectivement_distinctes(data, monkeypatch):
 
 
 @pytest.mark.parametrize('multi', [False, True])
-def test_separation_entrainement_validation(data, monkeypatch, multi):
+def test_separation_of_training_and_validation(data, monkeypatch, multi):
     xt, yt = data
     xv = np.array([[.1, .2], [.3, .6], [.8, .9], [.6, .1]])
     yv = np.array([2., -1., 3., .5])

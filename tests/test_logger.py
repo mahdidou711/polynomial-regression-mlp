@@ -1,9 +1,9 @@
-"""Tests de src/utils/logger.py (etape 0).
+"""Tests of src/utils/logger.py.
 
-Couvre : configuration idempotente, sortie console lisible, fichier JSON Lines
-strict, conversion des types numpy et des valeurs non finies, niveaux,
-metadonnees d'environnement.
-Commande : python -m pytest tests/test_logger.py -v
+Covers: idempotent configuration, readable console output, strict JSON Lines
+file, conversion of numpy types and non-finite values, levels,
+environment metadata.
+Command: python -m pytest tests/test_logger.py -v
 """
 
 import json
@@ -16,12 +16,12 @@ import sklearn
 
 from src.utils.logger import environment_info, get_logger, log_event
 
-NAME = "c0_tp2_mlp.test_logger"
+NAME = "polynomial_mlp.test_logger"
 
 
 @pytest.fixture
 def logger_name():
-    """Nom dedie ; handlers fermes et retires apres le test."""
+    """Dedicated name; handlers closed and removed after the test."""
     yield NAME
     lg = logging.getLogger(NAME)
     for h in list(lg.handlers):
@@ -30,8 +30,8 @@ def logger_name():
 
 
 def read_jsonl(path):
-    def refuse_constant(token):  # NaN / Infinity ne sont pas du JSON strict
-        raise ValueError(f"constante non standard : {token}")
+    def refuse_constant(token):  # NaN / Infinity are not strict JSON
+        raise ValueError(f"non-standard constant: {token}")
 
     lines = path.read_text(encoding="utf-8").splitlines()
     return [json.loads(line, parse_constant=refuse_constant) for line in lines]
@@ -46,7 +46,7 @@ class TestGetLogger:
         f = tmp_path / "run.jsonl"
         n1 = len(get_logger(logger_name, log_file=f).handlers)
         n2 = len(get_logger(logger_name, log_file=f).handlers)
-        assert n1 == n2 == 2  # console + fichier
+        assert n1 == n2 == 2  # console + file
 
     def test_no_file_handler_without_log_file(self, logger_name):
         assert len(get_logger(logger_name).handlers) == 1
@@ -88,7 +88,7 @@ class TestLogEvent:
         assert rec["level"] == "INFO"
         assert rec["logger"] == NAME
         assert rec["degree"] == 5 and rec["mse"] == 0.25 and rec["solver"] == "svd"
-        assert rec["time"].endswith("+00:00")  # horodatage UTC
+        assert rec["time"].endswith("+00:00")  # UTC timestamp
 
     def test_one_line_per_event(self, logger_name, tmp_path):
         f = tmp_path / "run.jsonl"
@@ -125,10 +125,10 @@ class TestLogEvent:
         assert read_jsonl(f)[0]["level"] == "WARNING"
 
     def test_reserved_field_name_time_is_rejected(self, logger_name):
-        # 'logger', 'event' et 'level' sont deja des parametres de log_event
-        # (TypeError natif) ; 'time' est la seule cle JSON qu'un champ pourrait ecraser.
+        # 'logger', 'event' and 'level' are already parameters of log_event
+        # (native TypeError); 'time' is the only JSON key that a field could overwrite.
         lg = get_logger(logger_name)
-        with pytest.raises(ValueError, match="reserv"):
+        with pytest.raises(ValueError, match="reserved"):
             log_event(lg, "bad", time=1)
 
     def test_console_output_is_human_readable(self, logger_name, capsys):
@@ -158,7 +158,7 @@ class TestEnvironmentInfo:
 
 
 class TestExceptionLogging:
-    """AE0-03 : la trace d'une exception figure dans le JSON Lines."""
+    """The trace of an exception appears in the JSON Lines file."""
 
     def test_exc_info_true_records_traceback(self, logger_name, tmp_path):
         f = tmp_path / "run.jsonl"
@@ -175,9 +175,9 @@ class TestExceptionLogging:
     def test_exception_instance_is_accepted(self, logger_name, tmp_path):
         f = tmp_path / "run.jsonl"
         lg = get_logger(logger_name, log_file=f)
-        err = ValueError("valeur invalide")
+        err = ValueError("invalid value")
         log_event(lg, "bad", level=logging.ERROR, exc_info=err)
-        assert "ValueError: valeur invalide" in read_jsonl(f)[0]["exc_info"]
+        assert "ValueError: invalid value" in read_jsonl(f)[0]["exc_info"]
 
     def test_no_exc_info_key_for_ordinary_events(self, logger_name, tmp_path):
         f = tmp_path / "run.jsonl"
@@ -192,13 +192,13 @@ class TestExceptionLogging:
         except RuntimeError:
             log_event(lg, "failed", exc_info=True)
         log_event(lg, "after")
-        assert len(f.read_text(encoding="utf-8").splitlines()) == 2  # trace multi-ligne echappee
+        assert len(f.read_text(encoding="utf-8").splitlines()) == 2  # escaped multi-line trace
         assert [r["event"] for r in read_jsonl(f)] == ["failed", "after"]
 
     def test_console_shows_traceback(self, logger_name, capsys):
         lg = get_logger(logger_name)
         try:
-            raise KeyError("cle")
+            raise KeyError("key")
         except KeyError:
             log_event(lg, "failed", exc_info=True)
         assert "KeyError" in capsys.readouterr().err

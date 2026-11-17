@@ -1,8 +1,8 @@
-"""Tests de src/utils/metrics.py (etape 0).
+"""Tests of src/utils/metrics.py.
 
-Couvre : resultats analytiques, concordance avec scikit-learn, rejet des formes
-divergentes (pas de broadcasting parasite), entrees invalides, conditionnement.
-Commande : python -m pytest tests/test_metrics.py -v
+Covers: analytical results, agreement with scikit-learn, rejection of mismatching
+shapes (no spurious broadcasting), invalid inputs, conditioning.
+Command: python -m pytest tests/test_metrics.py -v
 """
 
 import logging
@@ -23,12 +23,12 @@ from src.utils.metrics import (
 
 
 def vandermonde(x, degree):
-    """H[i, j] = x_i**j, j = 0..degree (matrice non centree, plan etape 2)."""
+    """H[i, j] = x_i**j, j = 0..degree (uncentred matrix)."""
     return np.vander(x, degree + 1, increasing=True)
 
 
 # --------------------------------------------------------------------------
-# getMSE : resultats analytiques
+# getMSE: analytical results
 # --------------------------------------------------------------------------
 class TestGetMSEAnalytic:
     def test_identical_vectors_give_zero(self):
@@ -46,7 +46,7 @@ class TestGetMSEAnalytic:
         assert getMSE(a, b) == getMSE(b, a)
 
     def test_integer_inputs_do_not_truncate(self):
-        # 0.5 attendu : une division entiere donnerait 0
+        # 0.5 expected: an integer division would give 0
         assert getMSE([0, 1], [1, 1]) == 0.5
 
     def test_returns_python_float(self):
@@ -70,16 +70,16 @@ class TestGetMSEAnalytic:
 
 
 # --------------------------------------------------------------------------
-# getMSE : formes, types, valeurs invalides
+# getMSE: shapes, types, invalid values
 # --------------------------------------------------------------------------
 class TestGetMSEValidation:
     def test_column_vector_vs_flat_vector_is_rejected(self):
-        # Cas du plan : (N, 1) vs (N,). Sans controle, numpy broadcast vers
-        # (N, N) et renvoie une valeur fausse sans erreur.
+        # The (N, 1) vs (N,) case. Without a check, numpy broadcasts to
+        # (N, N) and returns a wrong value without an error.
         y = np.array([1.0, 2.0, 3.0, 4.0])
         p = np.array([1.5, 2.5, 2.5, 4.5])
         silent = np.mean((y.reshape(-1, 1) - p) ** 2)
-        assert silent != pytest.approx(getMSE(y, p))  # le piege est reel
+        assert silent != pytest.approx(getMSE(y, p))  # the trap is real
         with pytest.raises(AssertionError, match="shape"):
             getMSE(y.reshape(-1, 1), p)
         with pytest.raises(AssertionError, match="shape"):
@@ -94,14 +94,14 @@ class TestGetMSEValidation:
             getMSE(1.0, 2.0)
 
     def test_empty_is_rejected(self):
-        with pytest.raises(ValueError, match="vide"):
+        with pytest.raises(ValueError, match="empty"):
             getMSE(np.array([]), np.array([]))
 
     @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
     def test_non_finite_is_rejected(self, bad):
-        with pytest.raises(ValueError, match="fini"):
+        with pytest.raises(ValueError, match="finite"):
             getMSE([1.0, bad], [1.0, 2.0])
-        with pytest.raises(ValueError, match="fini"):
+        with pytest.raises(ValueError, match="finite"):
             getMSE([1.0, 2.0], [1.0, bad])
 
     @pytest.mark.parametrize("bad", [["a", "b"], [True, False], [1 + 2j, 3 + 0j]])
@@ -172,7 +172,7 @@ class TestConditionNumbers:
             assert c.kappa_hth == pytest.approx(c.kappa_h**2, rel=1e-12)
 
     def test_vandermonde_conditioning_grows_with_degree(self):
-        # Colonnes emboitees : kappa ne peut pas decroitre (entrelacement).
+        # Nested columns: kappa cannot decrease (interlacing).
         x = np.linspace(0.0, 1.2, 20)
         kappas = [condition_numbers(vandermonde(x, d)).kappa_hth for d in range(1, 13)]
         assert all(b >= a for a, b in zip(kappas, kappas[1:]))
@@ -187,11 +187,11 @@ class TestConditionNumbers:
         assert condition_numbers(h).kappa_h > 1e15
 
     def test_underdetermined_system_has_singular_normal_matrix(self):
-        # N = 3 < p = 5 (cas NbEx = 10, d >= 10) : H^T H est de rang <= 3 < 5.
+        # N = 3 < p = 5 (case n_samples = 10, d >= 10): H^T H has rank <= 3 < 5.
         h = np.random.default_rng(2).normal(size=(3, 5))
         c = condition_numbers(h)
-        assert np.isfinite(c.kappa_h)  # conditionnement de H lui-meme
-        assert c.kappa_hth == np.inf  # mais H^T H est singuliere
+        assert np.isfinite(c.kappa_h)  # conditioning of H itself
+        assert c.kappa_hth == np.inf  # but H^T H is singular
 
     def test_overflow_gives_inf_not_exception(self):
         h = np.diag([1e200, 1e-200])
@@ -202,7 +202,7 @@ class TestConditionNumbers:
         [
             (np.ones(3), ValueError),  # 1D
             (np.ones((2, 2, 2)), ValueError),  # 3D
-            (np.empty((0, 3)), ValueError),  # vide
+            (np.empty((0, 3)), ValueError),  # empty
             (np.array([[1.0, np.nan], [1.0, 2.0]]), ValueError),
             (np.array([["a", "b"], ["c", "d"]]), TypeError),
         ],
@@ -213,7 +213,7 @@ class TestConditionNumbers:
 
     def test_warns_above_threshold_without_raising(self, caplog):
         h = vandermonde(np.linspace(0.0, 1.2, 20), 12)
-        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
+        with caplog.at_level(logging.INFO, logger="polynomial_mlp.metrics"):
             c = condition_numbers(h)
         assert c.kappa_hth > KAPPA_HTH_ALERT
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -222,26 +222,26 @@ class TestConditionNumbers:
         assert warnings[0].fields["kappa_hth"] == c.kappa_hth
 
     def test_context_fields_are_logged(self, caplog):
-        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
+        with caplog.at_level(logging.INFO, logger="polynomial_mlp.metrics"):
             condition_numbers(np.eye(2), degree=1)
         assert caplog.records[0].fields["degree"] == 1
 
     def test_no_warning_below_threshold(self, caplog):
         h = vandermonde(np.linspace(0.0, 1.2, 20), 2)
-        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
+        with caplog.at_level(logging.INFO, logger="polynomial_mlp.metrics"):
             condition_numbers(h)
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 # --------------------------------------------------------------------------
-# AE0-04 : collisions entre champs de contexte et champs internes de journalisation
+# collisions between context fields and internal logging fields
 # --------------------------------------------------------------------------
 class TestConditionNumbersContextCollision:
-    """Une cle de contexte homonyme d'un champ interne leve un ValueError explicite.
+    """A context key identical to an internal field raises an explicit ValueError.
 
-    Avant correction : ``TypeError`` opaque (argument nomme en double) pour
+    Before the fix: opaque ``TypeError`` (duplicate named argument) for
     ``kappa_h``, ``kappa_hth``, ``threshold``, ``shape``, ``level``, ``event``
-    et ``logger``.
+    and ``logger``.
     """
 
     @pytest.mark.parametrize(
@@ -258,13 +258,13 @@ class TestConditionNumbersContextCollision:
         assert "shape" in str(info.value) and "threshold" in str(info.value)
 
     def test_rejection_happens_before_any_event_is_logged(self, caplog):
-        with caplog.at_level(logging.DEBUG, logger="c0_tp2_mlp.metrics"):
+        with caplog.at_level(logging.DEBUG, logger="polynomial_mlp.metrics"):
             with pytest.raises(ValueError):
                 condition_numbers(np.eye(2), kappa_h=1.0)
         assert caplog.records == []
 
     def test_free_context_keys_still_work(self, caplog):
-        with caplog.at_level(logging.INFO, logger="c0_tp2_mlp.metrics"):
+        with caplog.at_level(logging.INFO, logger="polynomial_mlp.metrics"):
             condition_numbers(np.eye(2), degree=3, method="svd", n_samples=2)
         fields = caplog.records[0].fields
         assert (fields["degree"], fields["method"], fields["n_samples"]) == (3, "svd", 2)

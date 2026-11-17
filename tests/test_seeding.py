@@ -1,8 +1,8 @@
-"""Tests de src/utils/seeding.py (etape 0).
+"""Tests of src/utils/seeding.py.
 
-Couvre : constantes contractuelles (CDC section 10), reproductibilite,
-absence d'effet de bord sur l'etat aleatoire global, validation des graines.
-Commande : python -m pytest tests/test_seeding.py -v
+Covers: fixed constants, reproducibility, absence of side effects on the
+global random state, seed validation.
+Command: python -m pytest tests/test_seeding.py -v
 """
 
 import random
@@ -50,7 +50,7 @@ class TestMakeRng:
     def test_same_seed_gives_identical_stream(self):
         a = make_rng(42).normal(size=100)
         b = make_rng(42).normal(size=100)
-        assert np.array_equal(a, b)  # egalite binaire
+        assert np.array_equal(a, b)  # binary equality
 
     def test_different_seeds_give_different_streams(self):
         assert not np.array_equal(make_rng(42).normal(size=10), make_rng(43).normal(size=10))
@@ -70,7 +70,7 @@ class TestMakeRng:
 
     def test_stream_is_independent_of_global_state(self):
         first = make_rng(5).random(20)
-        np.random.random(100)  # perturbe l'etat global (API historique)
+        np.random.random(100)  # perturbs the global state (legacy API)
         random.random()
         assert np.array_equal(make_rng(5).random(20), first)
 
@@ -89,23 +89,23 @@ class TestValidateSeed:
 
     @pytest.mark.parametrize("bad", [None, 1.0, "42", True, False, [1]])
     def test_rejects_non_integer(self, bad):
-        with pytest.raises(TypeError, match="graine"):
+        with pytest.raises(TypeError, match="seed"):
             validate_seed(bad)
 
     @pytest.mark.parametrize("bad", [-1, 2**32])
     def test_rejects_out_of_range(self, bad):
-        # 2**32 - 1 est le maximum accepte par random_state de scikit-learn
-        with pytest.raises(ValueError, match="graine"):
+        # 2**32 - 1 is the maximum accepted by scikit-learn's random_state
+        with pytest.raises(ValueError, match="seed"):
             validate_seed(bad)
 
     def test_make_rng_rejects_none(self):
-        # None donnerait un tirage non reproductible
-        with pytest.raises(TypeError, match="graine"):
+        # None would give a non-reproducible draw
+        with pytest.raises(TypeError, match="seed"):
             make_rng(None)
 
 
 def test_no_global_seeding_call_in_src():
-    """Plan etape 0 : aucune utilisation de la graine globale NumPy/random."""
+    """No use of the global NumPy/random seed."""
     pattern = re.compile(r"\b(?:np|numpy)\.random\.seed\s*\(|\brandom\.seed\s*\(")
     offenders = [
         str(p.relative_to(SRC_DIR.parent))

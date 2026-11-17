@@ -1,4 +1,4 @@
-"""Disposition des fichiers exportes, parametree par une racine (depot, repertoire temporaire ou isole)."""
+"""File layout of the exported artefacts, parameterised by a root (repository, temporary or isolated directory)."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,10 +25,6 @@ class Layout:
     @property
     def figures_manifest(self) -> Path:
         return self.root / "results" / "figures" / "figures_manifest.json"
-
-    @property
-    def preview(self) -> Path:
-        return self.root / "results" / "tables_preview.tex"
 
     @property
     def processed(self) -> Path:
